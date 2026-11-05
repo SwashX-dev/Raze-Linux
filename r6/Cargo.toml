@@ -47,3 +47,8 @@ path = "src/bin/r6-config.rs"
 [[bin]]
 name = "r6-tmpfiles"
 path = "src/bin/r6-tmpfiles.rs"
+
+
+[[bin]]
+name = "r6-syslogd"
+path = "src/bin/r6-syslogd.rs"

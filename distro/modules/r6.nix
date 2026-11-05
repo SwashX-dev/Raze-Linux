@@ -185,6 +185,11 @@ in
       '';
 
       raze.r6.services = {
+        syslog = {
+          description = "syslog(3) receiver on /dev/log";
+          command = [ "${pkgs.r6}/bin/r6-syslogd" ];
+          restart = "always";
+        };
         machine-id = {
           description = "Create /etc/machine-id on first boot";
           type = "oneshot";

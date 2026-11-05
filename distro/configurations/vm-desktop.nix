@@ -1,14 +1,18 @@
-# Reference installed system: the default Raze Desktop (niri) on a single ext4 disk
-# with systemd-boot. Its closure is embedded in the ISO for offline installation and
+# Reference installed system: the default Raze Desktop (Rift + Rift Shell, r6 init) on a
+# single ext4 disk with GRUB (EFI). Its closure is embedded in the ISO for offline installation and
 # it is the system booted by the VM tests.
 { lib, pkgs, modulesPath, ... }:
 {
   imports = [ "${modulesPath}/profiles/qemu-guest.nix" ];
 
   raze.profile = "desktop";
-  raze.desktop = "niri";
+  raze.desktop = "rift";
 
-  boot.loader.systemd-boot.enable = true;
+  boot.loader.grub = {
+    enable = true;
+    efiSupport = true;
+    device = "nodev";
+  };
   boot.loader.efi.canTouchEfiVariables = true;
   fileSystems."/" = { device = "/dev/disk/by-label/raze"; fsType = "ext4"; };
   fileSystems."/boot" = { device = "/dev/disk/by-label/RAZE_EFI"; fsType = "vfat"; };

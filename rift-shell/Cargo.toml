@@ -1,0 +1,14 @@
+[package]
+name = "rift-shell"
+description = "Rift Shell launcher and helper commands (screenshots, recording, IPC)"
+version = "1.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/SwashX-dev/Raze-Linux"
+
+[dependencies]
+serde_json = "1"
+
+[profile.release]
+opt-level = 3
+strip = true

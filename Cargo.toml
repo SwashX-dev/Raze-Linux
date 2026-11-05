@@ -2,7 +2,7 @@
 resolver = "2"
 members = ["r6", "rix"]
 # Rift has heavy native dependencies (Smithay, Mesa, libinput) and its own lockfile.
-exclude = ["rift"]
+exclude = ["rift", "rift-shell"]
 
 [workspace.package]
 version = "1.0.0"

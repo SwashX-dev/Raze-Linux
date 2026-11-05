@@ -2,7 +2,7 @@
 # Run by the compositor once its Wayland socket exists: publish the session's display
 # variables to the user supervisor and to D-Bus activation, then start the graphical
 # session services (r6 user service `graphical-session` and its dependencies).
-vars="WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE"
+vars="WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE RIFT_SOCKET"
 if [ -S "${XDG_RUNTIME_DIR:-/nonexistent}/r6/control.sock" ]; then
     # shellcheck disable=SC2086
     r6 --user import-env $vars > /dev/null
@@ -12,5 +12,10 @@ if [ -S "${XDG_RUNTIME_DIR:-/nonexistent}/r6/control.sock" ]; then
 elif command -v systemctl > /dev/null; then
     # shellcheck disable=SC2086
     dbus-update-activation-environment --systemd $vars 2> /dev/null
+    # Without a user supervisor, Rift's session components run as plain children.
+    if [ "$XDG_CURRENT_DESKTOP" = rift ]; then
+        rift-shell &
+        wl-paste --watch cliphist store &
+    fi
 fi
 exit 0

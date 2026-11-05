@@ -128,6 +128,8 @@ pub struct Rift {
     pub suppressed_keys: std::collections::HashSet<smithay::input::keyboard::Keycode>,
     pub cursors: crate::render::Cursors,
     pub decorations: crate::render::Decorations,
+    /// Night-light colour temperature in kelvin (None: neutral gamma).
+    pub night_light: Option<u32>,
 }
 
 #[derive(Default)]
@@ -282,6 +284,7 @@ impl Rift {
             suppressed_keys: Default::default(),
             cursors,
             decorations: Default::default(),
+            night_light: None,
         }
     }
 
@@ -640,6 +643,15 @@ impl Rift {
         self.config = cfg;
         self.config_error = None;
         self.relayout();
+    }
+
+    /// Apply `night_light` to every output's gamma ramp. Returns whether the backend
+    /// supports it (only DRM outputs have gamma tables).
+    pub fn apply_night_light(&mut self) -> bool {
+        match &mut self.backend {
+            crate::backend::Backend::Udev(u) => u.set_night_light(self.night_light),
+            _ => false,
+        }
     }
 
     // ------------------------------------------------------------------ frames

@@ -9,7 +9,7 @@
   outputs = { self, nixpkgs }:
     let
       system = "x86_64-linux";
-      version = "1.0.0";
+      version = "1.1.0";
       pkgs = import nixpkgs {
         inherit system;
         overlays = [ self.overlays.default ];
@@ -29,7 +29,7 @@
       overlays.default = final: prev: import ./nix/overlay.nix { inherit version; } final prev;
 
       packages.${system} = {
-        inherit (pkgs) r6 rix raze-calamares-extensions raze-branding raze-gpu-check;
+        inherit (pkgs) r6 rix rift rift-shell raze-calamares-extensions raze-branding raze-gpu-check;
         default = pkgs.r6;
 
         # Raze Core: kernel + initramfs booted with r6 as the genuine PID 1.

@@ -1,13 +1,17 @@
 # Desktop selection. Exactly one desktop is installed; only the services it needs are
-# enabled. Scrollable-tiling Wayland sessions (niri and its fallback) share the Raze session
-# tooling: waybar, fuzzel, foot, mako, swaybg, swaylock.
+# enabled. The default is Rift, Raze's own compositor, with Rift Shell (panel, launcher,
+# notifications, lock screen, polkit agent). The other tiling Wayland sessions (niri,
+# Hyprland, dwl) share the waybar/fuzzel/mako/swaylock session tooling.
 { config, lib, pkgs, ... }:
 let
   cfg = config.raze;
   d = cfg.desktop;
   graphical = d != "none";
-  waylandTiling = builtins.elem d [ "niri" "hyprland" "dwl" ];
+  waylandTiling = builtins.elem d [ "rift" "niri" "hyprland" "dwl" ];
+  # Sessions using the waybar/fuzzel/mako stack (Rift brings its own shell).
+  barSession = builtins.elem d [ "niri" "hyprland" "dwl" ];
   greetdSession = {
+    rift = "raze-session";
     # raze-session runs niri on hardware-accelerated GPUs and falls back to a
     # software-rendered sway session elsewhere (niri refuses software renderers).
     niri = "raze-session";
@@ -18,11 +22,11 @@ in
 {
   options.raze = {
     desktop = lib.mkOption {
-      type = lib.types.enum [ "niri" "hyprland" "dwl" "xfce" "lxqt" "plasma" "gnome" "dwm" "none" ];
-      default = "niri";
+      type = lib.types.enum [ "rift" "niri" "hyprland" "dwl" "xfce" "lxqt" "plasma" "gnome" "dwm" "none" ];
+      default = "rift";
       description = ''
-        The desktop session to install. "niri" is the default; Raze's own Rift
-        compositor is not yet offered here (see docs/architecture/rift.md).
+        The desktop session to install. "rift" (Rift compositor + Rift Shell) is the
+        default.
       '';
     };
     autologinUser = lib.mkOption {
@@ -67,24 +71,16 @@ in
     (lib.mkIf waylandTiling {
       environment.systemPackages = with pkgs; [
         foot
-        fuzzel
-        waybar
-        mako
-        swaybg
-        swaylock
-        swayidle
         grim
         slurp
         wl-clipboard
         brightnessctl
         wiremix
         pcmanfm
-        lxqt.lxqt-policykit
         xwayland-satellite
         adwaita-icon-theme
       ];
       programs.dconf.enable = true;
-      security.pam.services.swaylock = { };
       xdg.portal = {
         enable = true;
         extraPortals = [ pkgs.xdg-desktop-portal-gtk ];
@@ -92,14 +88,7 @@ in
       };
       environment.sessionVariables.NIXOS_OZONE_WL = "1";
 
-      # Raze session defaults (users can override in ~/.config).
-      environment.etc = {
-        "xdg/waybar/config".source = "${pkgs.raze-branding}/share/raze/desktop/waybar/config.jsonc";
-        "xdg/waybar/style.css".source = "${pkgs.raze-branding}/share/raze/desktop/waybar/style.css";
-        "xdg/fuzzel/fuzzel.ini".source = "${pkgs.raze-branding}/share/raze/desktop/fuzzel.ini";
-        "xdg/foot/foot.ini".source = "${pkgs.raze-branding}/share/raze/desktop/foot.ini";
-        "xdg/mako/config".source = "${pkgs.raze-branding}/share/raze/desktop/mako.conf";
-      };
+      environment.etc."xdg/foot/foot.ini".source = "${pkgs.raze-branding}/share/raze/desktop/foot.ini";
 
       # Graphical session services (r6-user). Started by raze-session-ready once the
       # compositor's Wayland socket exists; components add themselves as dependencies.
@@ -121,6 +110,47 @@ in
             command = greetdSession;
             user = cfg.autologinUser;
           };
+        };
+      };
+    })
+
+    (lib.mkIf barSession {
+      environment.systemPackages = with pkgs; [ fuzzel waybar mako swaybg swaylock swayidle lxqt.lxqt-policykit ];
+      security.pam.services.swaylock = { };
+      # Raze session defaults (users can override in ~/.config).
+      environment.etc = {
+        "xdg/waybar/config".source = "${pkgs.raze-branding}/share/raze/desktop/waybar/config.jsonc";
+        "xdg/waybar/style.css".source = "${pkgs.raze-branding}/share/raze/desktop/waybar/style.css";
+        "xdg/fuzzel/fuzzel.ini".source = "${pkgs.raze-branding}/share/raze/desktop/fuzzel.ini";
+        "xdg/mako/config".source = "${pkgs.raze-branding}/share/raze/desktop/mako.conf";
+      };
+    })
+
+    (lib.mkIf (d == "rift") {
+      environment.systemPackages = with pkgs; [ rift rift-shell cliphist libnotify wl-screenrec playerctl ];
+      services.displayManager.sessionPackages = [ pkgs.rift ];
+      # The shell's icon glyphs (a subset of Material Symbols Rounded).
+      fonts.packages = [ pkgs.rift-shell ];
+      environment.etc."rift/config.toml".source = "${pkgs.rift}/share/rift/default-config.toml";
+      # Lock screen authentication (Rift Shell's PamContext uses this service).
+      security.pam.services.rift-shell = { };
+      # NetworkManager and Bluetooth control from the shell; power profiles.
+      services.power-profiles-daemon.enable = lib.mkDefault true;
+
+      raze.r6.userServices = {
+        graphical-session.wants = [ "rift-shell" "cliphist" ];
+        rift-shell = {
+          description = "Rift Shell (panel, notifications, lock screen, polkit agent)";
+          depends = [ "dbus" ];
+          command = [ "${pkgs.rift-shell}/bin/rift-shell" ];
+          restart = "always";
+          enable = false;
+        };
+        cliphist = {
+          description = "Clipboard history";
+          command = [ "${pkgs.wl-clipboard}/bin/wl-paste" "--watch" "${pkgs.cliphist}/bin/cliphist" "store" ];
+          restart = "always";
+          enable = false;
         };
       };
     })

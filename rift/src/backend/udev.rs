@@ -224,6 +224,36 @@ impl Udev {
         }
     }
 
+    /// Load a colour-temperature gamma ramp into every CRTC (None restores linear).
+    pub fn set_night_light(&mut self, kelvin: Option<u32>) -> bool {
+        use smithay::reexports::drm::control::Device as _;
+        let Some(device) = &mut self.device else { return false };
+        let (drm, crtcs): (&DrmDevice, Vec<crtc::Handle>) = match &device.kind {
+            Kind::Gles(g) => (g.manager.device(), g.surfaces.keys().copied().collect()),
+            Kind::Pixman(g) => (g.manager.device(), g.surfaces.keys().copied().collect()),
+        };
+        let (rm, gm, bm) = kelvin.map(temperature_rgb).unwrap_or((1.0, 1.0, 1.0));
+        let mut ok = true;
+        for crtc in crtcs {
+            let size = match drm.get_crtc(crtc) {
+                Ok(info) => info.gamma_length() as usize,
+                Err(_) => 0,
+            };
+            if size < 2 {
+                ok = false;
+                continue;
+            }
+            let ramp = |m: f64| -> Vec<u16> {
+                (0..size).map(|i| ((i as f64 / (size - 1) as f64) * m * 65535.0).round().min(65535.0) as u16).collect()
+            };
+            if let Err(e) = drm.set_gamma(crtc, &ramp(rm), &ramp(gm), &ramp(bm)) {
+                tracing::warn!("cannot set gamma: {e}");
+                ok = false;
+            }
+        }
+        ok
+    }
+
     pub fn set_power(&mut self, state: &mut Rift, on: bool) {
         let Some(device) = &mut self.device else { return };
         for o in state.outputs.iter_mut() {
@@ -243,6 +273,32 @@ impl Udev {
                 }
             }
         }
+    }
+}
+
+/// RGB multipliers for a black-body colour temperature (Tanner Helland's fit), with
+/// 6500 K as neutral.
+fn temperature_rgb(kelvin: u32) -> (f64, f64, f64) {
+    fn channel(k: f64) -> (f64, f64, f64) {
+        let t = k / 100.0;
+        let r = if t <= 66.0 { 255.0 } else { 329.698727446 * (t - 60.0).powf(-0.1332047592) };
+        let g = if t <= 66.0 { 99.4708025861 * t.ln() - 161.1195681661 } else { 288.1221695283 * (t - 60.0).powf(-0.0755148492) };
+        let b = if t >= 66.0 { 255.0 } else if t <= 19.0 { 0.0 } else { 138.5177312231 * (t - 10.0).ln() - 305.0447927307 };
+        (r.clamp(0.0, 255.0) / 255.0, g.clamp(0.0, 255.0) / 255.0, b.clamp(0.0, 255.0) / 255.0)
+    }
+    let (r, g, b) = channel(kelvin as f64);
+    let (nr, ng, nb) = channel(6500.0);
+    ((r / nr).min(1.0), (g / ng).min(1.0), (b / nb).min(1.0))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn night_light_is_warm_and_neutral_at_6500k() {
+        let (r, g, b) = super::temperature_rgb(6500);
+        assert!((r - 1.0).abs() < 1e-9 && (g - 1.0).abs() < 1e-9 && (b - 1.0).abs() < 1e-9);
+        let (r, g, b) = super::temperature_rgb(3500);
+        assert!(r > g && g > b && b < 0.75, "{r} {g} {b}");
     }
 }
 

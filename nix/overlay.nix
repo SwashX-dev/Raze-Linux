@@ -44,6 +44,8 @@ in
 
   rift = final.callPackage ../rift/package.nix { inherit version; };
 
+  rift-shell = final.callPackage ../rift-shell/package.nix { inherit version; };
+
   raze-branding = final.callPackage ../distro/branding { inherit version; };
 
   raze-gpu-check = final.callPackage ../distro/gpu-check { inherit version; };
@@ -62,6 +64,8 @@ in
       ../nix
       ../r6
       ../rix
+      ../rift
+      ../rift-shell
       ../distro
       ../installer
       ../kernel

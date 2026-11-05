@@ -4,6 +4,7 @@
 //!   version | outputs | workspaces | windows | focused-window | state
 //!   action <action as in the [binds] table>   e.g. `action workspace 2`
 //!   subscribe                                 stream `state` on every change
+//!   night-light <kelvin>|off                  colour temperature of every output
 //!   frames                                    (headless) frames rendered so far
 
 use std::collections::hash_map::DefaultHasher;
@@ -94,9 +95,27 @@ impl Rift {
                 .focused_window()
                 .map(|w| {
                     let (app_id, title) = Self::app_id_title(w);
-                    json!({ "app_id": app_id, "title": title })
+                    // Geometry in the global (xdg-output) coordinate space, as grim expects.
+                    let geo = self.space.element_geometry(w).unwrap_or_default();
+                    let output = self.space.outputs_for_element(w).first().map(|o| o.name());
+                    json!({
+                        "app_id": app_id, "title": title, "output": output,
+                        "x": geo.loc.x, "y": geo.loc.y, "width": geo.size.w, "height": geo.size.h,
+                    })
                 })
                 .unwrap_or(Value::Null),
+            "night-light" => {
+                let temp = match arg {
+                    "off" | "" => None,
+                    t => match t.parse::<u32>() {
+                        Ok(k) if (1000..=10000).contains(&k) => Some(k),
+                        _ => return json!({ "error": "night-light expects a temperature in kelvin (1000-10000) or off" }),
+                    },
+                };
+                self.night_light = temp;
+                let applied = self.apply_night_light();
+                json!({ "ok": true, "applied": applied })
+            }
             "state" => self.ipc_snapshot(),
             "frames" => match &self.backend {
                 crate::backend::Backend::Headless(h) => json!({ "frames": h.frames }),
