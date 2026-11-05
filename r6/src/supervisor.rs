@@ -114,6 +114,31 @@ impl Unit {
 struct Client {
     stream: UnixStream,
     buf: Vec<u8>,
+    /// Root, or the user the supervisor runs as: may control services. Others may only
+    /// read status (the socket is world-connectable, like `systemctl status`).
+    privileged: bool,
+}
+
+/// UID of the peer of a Unix stream (SO_PEERCRED).
+fn peer_uid(s: &UnixStream) -> Option<u32> {
+    use std::os::fd::AsRawFd;
+    let mut cred = libc::ucred {
+        pid: 0,
+        uid: 0,
+        gid: 0,
+    };
+    let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
+    // SAFETY: getsockopt with a correctly sized ucred buffer.
+    let r = unsafe {
+        libc::getsockopt(
+            s.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_PEERCRED,
+            (&mut cred as *mut libc::ucred).cast(),
+            &mut len,
+        )
+    };
+    (r == 0).then_some(cred.uid)
 }
 
 pub struct Supervisor {
@@ -160,6 +185,11 @@ impl Supervisor {
         let listener = UnixListener::bind(&sock).map_err(|e| format!("{}: {e}", sock.display()));
         unsafe { libc::umask(old) };
         let listener = listener?;
+        // Anyone may connect; requests other than status/info are checked per client.
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&sock, std::fs::Permissions::from_mode(0o666));
+        }
         listener.set_nonblocking(true).map_err(|e| e.to_string())?;
         let sigfd = sys::signalfd(&[libc::SIGCHLD, libc::SIGTERM, libc::SIGINT, libc::SIGHUP])
             .map_err(|e| format!("signalfd: {e}"))?;
@@ -1130,8 +1160,12 @@ impl Supervisor {
             return false;
         };
         let line = c.buf[..nl].to_vec();
+        let privileged = c.privileged;
         let resp = match serde_json::from_slice::<Request>(&line) {
-            Ok(req) => self.handle(req),
+            Ok(req) if privileged || matches!(req, Request::Status { .. } | Request::Info) => {
+                self.handle(req)
+            }
+            Ok(_) => Response::err("permission denied: only root can control services (use sudo)"),
             Err(e) => Response::err(format!("bad request: {e}")),
         };
         let mut out = serde_json::to_vec(&resp).unwrap_or_default();
@@ -1234,9 +1268,13 @@ impl Supervisor {
             if fds[1].readable {
                 while let Ok((s, _)) = self.listener.accept() {
                     let _ = s.set_nonblocking(true);
+                    // SAFETY: getuid cannot fail.
+                    let me = unsafe { libc::getuid() };
+                    let privileged = peer_uid(&s).map(|u| u == 0 || u == me).unwrap_or(false);
                     self.clients.push(Client {
                         stream: s,
                         buf: Vec::new(),
+                        privileged,
                     });
                 }
             }

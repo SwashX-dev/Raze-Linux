@@ -41,6 +41,9 @@ pkgs.testers.runNixOSTest {
             # Every enabled system service is up (longrun) or done (oneshot).
             machine.wait_until_succeeds("! r6 list | awk '$3 == \"enabled\" && $2 != \"up\" && $2 != \"done\"' | grep .", timeout=120)
             machine.succeed("r6-activate --dir /etc/r6/services")
+            # Regular users can read status but not control services.
+            machine.succeed("su - raze -c 'r6 status greetd | grep -q up'")
+            machine.fail("su - raze -c 'r6 stop greetd'")
             # NixOS firewall rules and the performance profile's sched_ext scheduler,
             # both NixOS systemd units ported to r6 services.
             machine.succeed("iptables -S | grep -q nixos-fw")

@@ -36,7 +36,13 @@ Presentation {
     Slide {
         Text {
             anchors.centerIn: parent; width: parent.width * 0.8; wrapMode: Text.WordWrap; color: "#e4e4e7"; font.pixelSize: 17
-            text: "<b>Keyboard first.</b><br/><br/>Super+Enter opens a terminal, Super+D the launcher, Super+Escape the power menu, Super+Shift+/ shows every shortcut."
+            text: "<b>r6 and Rift.</b><br/><br/>Raze starts with r6, its own init system and service manager (<tt>r6 status</tt>), and draws your desktop with Rift, its own Wayland compositor, and Rift Shell."
+        }
+    }
+    Slide {
+        Text {
+            anchors.centerIn: parent; width: parent.width * 0.8; wrapMode: Text.WordWrap; color: "#e4e4e7"; font.pixelSize: 17
+            text: "<b>Keyboard first.</b><br/><br/>Super+Enter opens a terminal, Super+D the launcher, Super+N the control centre, Super+Escape the power menu. Super+Left/Right scroll through your columns of windows."
         }
     }
 }
