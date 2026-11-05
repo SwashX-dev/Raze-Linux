@@ -6,26 +6,26 @@
 
 ### Rust-Powered. Performance-Driven. Minimal by Design.
 
-Raze Linux is an experimental, performance-focused Linux distribution built around lightweight system services, reproducible package management, and a Rust-first development philosophy.
+Raze Linux is an experimental, performance-focused Linux distribution built around lightweight system services, reproducible package management, and a Rust-first development philosophy: its own init system (r6), its own Wayland compositor (Rift) and desktop shell, on a reproducible Nix base.
 
-[![Download Raze Linux](https://img.shields.io/badge/⬇_DOWNLOAD-RAZE_LINUX_ISO-dc2626?style=for-the-badge)](https://github.com/SwashX-dev/Raze-Linux/releases/download/v1.0.0/raze-linux-v1.0.0-x86_64.iso)
+[![Download Raze Linux](https://img.shields.io/badge/⬇_DOWNLOAD-RAZE_LINUX_ISO-dc2626?style=for-the-badge)](https://github.com/SwashX-dev/Raze-Linux/releases/download/v1.1.0/raze-linux-v1.1.0-x86_64.iso)
 
-[![Version](https://img.shields.io/badge/version-1.0.0-dc2626)](https://github.com/SwashX-dev/Raze-Linux/releases/tag/v1.0.0)
+[![Version](https://img.shields.io/badge/version-1.1.0-dc2626)](https://github.com/SwashX-dev/Raze-Linux/releases/tag/v1.1.0)
 ![Architecture](https://img.shields.io/badge/arch-x86__64-555)
 ![Kernel](https://img.shields.io/badge/kernel-Linux_7.3.1-555)
 [![rust-ci](https://github.com/SwashX-dev/Raze-Linux/actions/workflows/rust-ci.yml/badge.svg)](https://github.com/SwashX-dev/Raze-Linux/actions/workflows/rust-ci.yml)
 [![qemu-tests](https://github.com/SwashX-dev/Raze-Linux/actions/workflows/qemu-tests.yml/badge.svg)](https://github.com/SwashX-dev/Raze-Linux/actions/workflows/qemu-tests.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-555)](LICENSE)
 
-**[ISO](https://github.com/SwashX-dev/Raze-Linux/releases/download/v1.0.0/raze-linux-v1.0.0-x86_64.iso)** ·
-**[SHA256SUMS](https://github.com/SwashX-dev/Raze-Linux/releases/download/v1.0.0/SHA256SUMS)** ·
-**[Release notes](https://github.com/SwashX-dev/Raze-Linux/releases/tag/v1.0.0)** ·
+**[ISO](https://github.com/SwashX-dev/Raze-Linux/releases/download/v1.1.0/raze-linux-v1.1.0-x86_64.iso)** ·
+**[SHA256SUMS](https://github.com/SwashX-dev/Raze-Linux/releases/download/v1.1.0/SHA256SUMS)** ·
+**[Release notes](https://github.com/SwashX-dev/Raze-Linux/releases/tag/v1.1.0)** ·
 **[Install guide](docs/installation/graphical.md)** ·
 **[Source](https://github.com/SwashX-dev/Raze-Linux)**
 
-<img src="docs/images/live-installer.png" width="820" alt="Raze Linux live session with the installer (real screenshot, QEMU/KVM)">
+<img src="docs/images/rift-desktop.png" width="820" alt="Raze Linux 1.1: Rift with Rift Shell's control centre and fastfetch (real screenshot, QEMU/KVM)">
 
-<sub>Real screenshots from the 1.0.0 ISO in QEMU/KVM. More: [installer](docs/images/installer-desktop.png) · [installed desktop](docs/images/installed-checks.png) · [software-rendered fallback](docs/images/live-software-session.png)</sub>
+<sub>Real screenshots of the 1.1.0 release in QEMU/KVM (no 3D acceleration). More: [live session with the installer](docs/images/rift-live-installer.png) · [launcher](docs/images/rift-launcher.png) · [installer dialog](docs/images/rift-installer-dialog.png)</sub>
 
 </div>
 
