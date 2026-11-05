@@ -1,0 +1,121 @@
+# Rift default configuration (Raze Linux).
+# Copy to ~/.config/rift/config.toml to customise; reload with Super+Shift+R.
+
+xwayland = true
+spawn_at_startup = ["raze-session-ready"]
+
+[environment]
+# NAME = "value"
+
+[input]
+focus_follows_mouse = false
+
+[input.keyboard]
+layout = ""          # e.g. "us", "de,us"
+variant = ""
+options = ""         # e.g. "grp:alt_shift_toggle,caps:escape"
+repeat_rate = 25
+repeat_delay = 600
+numlock = true
+
+[input.touchpad]
+tap = true
+natural_scroll = true
+
+[layout]
+gap = 10
+presets = [0.33333, 0.5, 0.66667]
+default_width = 0.5
+center_focused = false
+focus_ring_width = 2
+active_color = "#dc2626"
+inactive_color = "#3f3f46"
+background = "#0f0f10"
+
+[animations]
+enabled = true
+duration_ms = 180
+
+[cursor]
+theme = "Adwaita"
+size = 24
+
+# [outputs."eDP-1"]
+# scale = 1.25
+# mode = "2560x1600@120"
+# position = [0, 0]
+
+# [[window_rules]]
+# app_id = "firefox"
+# width = 0.66667
+
+[binds]
+"Super+Return" = "spawn foot"
+"Super+D" = "spawn rift-shell launcher"
+"Super+E" = "spawn pcmanfm"
+"Super+Escape" = "spawn rift-shell power"
+"Super+Alt+L" = "spawn rift-shell lock"
+"Super+N" = "spawn rift-shell control-center"
+"Super+V" = "spawn rift-shell clipboard"
+"Print" = "spawn rift-shell screenshot"
+"Super+Shift+S" = "spawn rift-shell screenshot region"
+
+"Super+Q" = "close"
+"Super+Shift+E" = "quit"
+"Super+Shift+R" = "reload-config"
+"Super+Shift+P" = "power-off-monitors"
+"Super+Shift+A" = "toggle-animations"
+
+"Super+Left" = "focus-left"
+"Super+Right" = "focus-right"
+"Super+Up" = "focus-up"
+"Super+Down" = "focus-down"
+"Super+H" = "focus-left"
+"Super+L" = "focus-right"
+"Super+K" = "focus-up"
+"Super+J" = "focus-down"
+"Super+Home" = "focus-first"
+"Super+End" = "focus-last"
+
+"Super+Ctrl+Left" = "move-left"
+"Super+Ctrl+Right" = "move-right"
+"Super+Ctrl+Up" = "move-up"
+"Super+Ctrl+Down" = "move-down"
+"Super+Ctrl+H" = "move-left"
+"Super+Ctrl+L" = "move-right"
+
+"Super+Comma" = "consume"
+"Super+Period" = "expel"
+"Super+R" = "switch-width"
+"Super+Minus" = "width -10%"
+"Super+Equal" = "width +10%"
+"Super+F" = "maximize"
+"Super+Shift+F" = "fullscreen"
+"Super+C" = "center"
+
+"Super+Page_Down" = "workspace-down"
+"Super+Page_Up" = "workspace-up"
+"Super+Ctrl+Page_Down" = "move-to-workspace-down"
+"Super+Ctrl+Page_Up" = "move-to-workspace-up"
+"Super+1" = "workspace 1"
+"Super+2" = "workspace 2"
+"Super+3" = "workspace 3"
+"Super+4" = "workspace 4"
+"Super+5" = "workspace 5"
+"Super+Shift+1" = "move-to-workspace 1"
+"Super+Shift+2" = "move-to-workspace 2"
+"Super+Shift+3" = "move-to-workspace 3"
+"Super+Shift+4" = "move-to-workspace 4"
+"Super+Shift+5" = "move-to-workspace 5"
+"Super+O" = "focus-monitor-next"
+"Super+Shift+O" = "move-to-monitor-next"
+
+"XF86AudioRaiseVolume" = "spawn wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+"
+"XF86AudioLowerVolume" = "spawn wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"
+"XF86AudioMute" = "spawn wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
+"XF86MonBrightnessUp" = "spawn brightnessctl set +5%"
+"XF86MonBrightnessDown" = "spawn brightnessctl set 5%-"
+
+"Ctrl+Alt+F1" = "vt 1"
+"Ctrl+Alt+F2" = "vt 2"
+"Ctrl+Alt+F3" = "vt 3"

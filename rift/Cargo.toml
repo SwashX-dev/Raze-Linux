@@ -1,0 +1,46 @@
+[package]
+name = "rift"
+description = "Rift: a scrollable-tiling Wayland compositor for Raze Linux"
+version = "1.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/SwashX-dev/Raze-Linux"
+
+[dependencies]
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = { version = "0.8", default-features = false, features = ["parse"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+xcursor = "0.3"
+
+[dependencies.smithay]
+git = "https://github.com/Smithay/smithay"
+rev = "65aa86fa5236e41775c313408102a5d5c2d1e2ca"
+default-features = false
+features = [
+    "backend_drm",
+    "backend_gbm",
+    "backend_egl",
+    "backend_libinput",
+    "backend_session_libseat",
+    "backend_udev",
+    "backend_winit",
+    "desktop",
+    "renderer_gl",
+    "renderer_pixman",
+    "use_system_lib",
+    "wayland_frontend",
+]
+
+[dependencies.smithay-drm-extras]
+git = "https://github.com/Smithay/smithay"
+rev = "65aa86fa5236e41775c313408102a5d5c2d1e2ca"
+default-features = false
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+strip = true

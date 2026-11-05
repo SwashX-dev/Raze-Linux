@@ -58,7 +58,10 @@
         packages = with pkgs; [
           cargo rustc clippy rustfmt rust-analyzer
           qemu_kvm OVMF.fd python3 hyperfine s6 jq
+          # Rift (Smithay) build dependencies
+          pkg-config libinput seatd udev libgbm mesa libglvnd libxkbcommon wayland pixman libdrm
         ];
+        LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath (with pkgs; [ libglvnd libxkbcommon wayland ]);
         RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}";
       };
 
