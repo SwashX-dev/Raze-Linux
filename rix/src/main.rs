@@ -579,7 +579,14 @@ fn main() -> ExitCode {
                              becomes active after a reboot",
                             if target_r6 { "r6" } else { "systemd" }
                         );
-                        delegate(&script.display().to_string(), &["boot".into()])
+                        // A systemd generation's switch-to-configuration talks to systemd
+                        // even for `boot`; under r6 run its boot-loader installer directly.
+                        match (running_r6, bootloader_installer(&script)) {
+                            (true, Some(installer)) => {
+                                delegate(&installer, &[p.path.display().to_string()])
+                            }
+                            _ => delegate(&script.display().to_string(), &["boot".into()]),
+                        }
                     } else {
                         println!("system profile now at generation {n}; activating");
                         delegate(&script.display().to_string(), &["switch".into()])
@@ -668,5 +675,44 @@ fn main() -> ExitCode {
         }
         "doctor" => cmd_doctor(),
         other => die(&format!("unknown command '{other}'\n\n{USAGE}")),
+    }
+}
+
+/// The boot-loader installer a NixOS (systemd) switch-to-configuration wrapper uses:
+/// its `INSTALL_BOOTLOADER='...'` setting.
+fn bootloader_installer(script: &std::path::Path) -> Option<String> {
+    let text = std::fs::read_to_string(script).ok()?;
+    let start = text.find("INSTALL_BOOTLOADER='")? + "INSTALL_BOOTLOADER='".len();
+    let len = text[start..].find('\'')?;
+    let path = &text[start..start + len];
+    std::path::Path::new(path)
+        .exists()
+        .then(|| path.to_string())
+}
+
+#[cfg(test)]
+mod rollback_tests {
+    #[test]
+    fn finds_the_boot_loader_installer_in_a_switch_wrapper() {
+        let dir = std::env::temp_dir().join(format!("rix-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let installer = dir.join("install-grub.sh");
+        std::fs::write(&installer, "").unwrap();
+        let wrapper = dir.join("switch-to-configuration");
+        std::fs::write(
+            &wrapper,
+            format!(
+                "#!/bin/sh\nexport OUT='/x'\nexport INSTALL_BOOTLOADER='{}'\nexec ...\n",
+                installer.display()
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            super::bootloader_installer(&wrapper),
+            Some(installer.display().to_string())
+        );
+        std::fs::write(&wrapper, "#!/bin/sh\nexec r6-switch\n").unwrap();
+        assert_eq!(super::bootloader_installer(&wrapper), None);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
