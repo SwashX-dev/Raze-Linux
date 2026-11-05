@@ -16,3 +16,4 @@ pub mod paths;
 pub mod proto;
 pub mod supervisor;
 pub mod sys;
+pub mod tmpfiles;

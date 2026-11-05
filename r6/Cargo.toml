@@ -35,3 +35,15 @@ path = "src/bin/r6-log.rs"
 [[bin]]
 name = "r6-activate"
 path = "src/bin/r6-activate.rs"
+
+[[bin]]
+name = "r6-user"
+path = "src/bin/r6-user.rs"
+
+[[bin]]
+name = "r6-config"
+path = "src/bin/r6-config.rs"
+
+[[bin]]
+name = "r6-tmpfiles"
+path = "src/bin/r6-tmpfiles.rs"

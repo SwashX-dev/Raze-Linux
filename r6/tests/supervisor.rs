@@ -141,15 +141,17 @@ const LONG: &str = "exec sleep 1000";
 #[test]
 fn boot_starts_enabled_services_in_dependency_order() {
     let mut e = Env::new();
+    // Readiness is signalled after the write, so ordering is observable in the file
+    // (with ready = "immediate" a dependent may start before the shell has written).
     e.sh_service(
         "a",
-        &format!("echo a >> $OUT/order; {LONG}"),
-        "enable = false",
+        &format!("echo a >> $OUT/order; echo >&3; {LONG}"),
+        "enable = false\nready = \"notify\"",
     );
     e.sh_service(
         "b",
-        &format!("echo b >> $OUT/order; {LONG}"),
-        "depends = [\"a\"]",
+        &format!("echo b >> $OUT/order; echo >&3; {LONG}"),
+        "depends = [\"a\"]\nready = \"notify\"",
     );
     e.sh_service(
         "c",
@@ -599,4 +601,83 @@ fn info_reports_memory_and_timing() {
         let v: serde_json::Value = serde_json::from_slice(&o.stdout).unwrap_or_default();
         v["rss_kib"].as_u64().unwrap_or(0) > 0 && v["boot_complete_ms"].is_number()
     }));
+}
+
+#[test]
+fn setenv_applies_to_services_started_afterwards() {
+    let mut e = Env::new();
+    e.sh_service(
+        "show",
+        "echo \"WD=$WAYLAND_DISPLAY\" > $OUT/env; exec sleep 1000",
+        "",
+    );
+    e.start();
+    let o = e.r6(&["setenv", "WAYLAND_DISPLAY=wayland-7"]);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    assert!(e.r6(&["start", "show"]).status.success());
+    assert!(wait_until(Duration::from_secs(3), || e.read_out("env")
+        == "WD=wayland-7\n"));
+    assert!(e.r6(&["unsetenv", "WAYLAND_DISPLAY"]).status.success());
+    assert!(e.r6(&["restart", "show"]).status.success());
+    assert!(wait_until(Duration::from_secs(3), || e.read_out("env") == "WD=\n"));
+    assert!(!e.r6(&["setenv", "NOEQUALS"]).status.success());
+}
+
+#[test]
+fn umask_and_rlimit_are_applied_to_the_process() {
+    let mut e = Env::new();
+    e.sh_service(
+        "limits",
+        "umask > $OUT/umask; ulimit -n > $OUT/nofile; exec sleep 1000",
+        "umask = \"027\"\nrlimit_nofile = 777\nenable = true",
+    );
+    e.start();
+    assert!(wait_until(Duration::from_secs(3), || e.read_out("nofile") == "777\n"));
+    assert_eq!(e.read_out("umask").trim().trim_start_matches('0'), "27");
+}
+
+#[test]
+fn user_supervisor_uses_session_locations() {
+    let tmp = tempfile::tempdir().unwrap();
+    let runtime = tmp.path().join("run");
+    let home = tmp.path().join("home");
+    std::fs::create_dir_all(home.join(".config/r6/services")).unwrap();
+    std::fs::create_dir_all(&runtime).unwrap();
+    let out = tmp.path().join("out");
+    std::fs::write(
+        home.join(".config/r6/services/hello.toml"),
+        format!(
+            "command = [\"/bin/sh\", \"-c\", \"echo hi > {}; exec sleep 1000\"]\nenable = true\n",
+            out.display()
+        ),
+    )
+    .unwrap();
+    let env = |c: &mut Command| {
+        c.env_clear()
+            .env("PATH", std::env::var("PATH").unwrap())
+            .env("HOME", &home)
+            .env("XDG_RUNTIME_DIR", &runtime)
+            .env("R6_QUIET", "1");
+    };
+    let mut c = Command::new(env!("CARGO_BIN_EXE_r6-user"));
+    env(&mut c);
+    let child = c.stderr(Stdio::null()).spawn().unwrap();
+    let mut guard = KillOnDrop(child);
+    assert!(wait_until(Duration::from_secs(5), || out.exists()));
+    assert!(runtime.join("r6/control.sock").exists());
+    let mut st = Command::new(env!("CARGO_BIN_EXE_r6"));
+    env(&mut st);
+    let o = st
+        .args(["--user", "--json", "status", "hello"])
+        .output()
+        .unwrap();
+    assert!(String::from_utf8_lossy(&o.stdout).contains("\"up\""));
+    let mut sd = Command::new(env!("CARGO_BIN_EXE_r6"));
+    env(&mut sd);
+    assert!(sd.args(["--user", "shutdown"]).status().unwrap().success());
+    assert!(wait_until(Duration::from_secs(10), || guard
+        .0
+        .try_wait()
+        .unwrap()
+        .is_some()));
 }

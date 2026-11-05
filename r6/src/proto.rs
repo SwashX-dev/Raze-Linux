@@ -13,15 +13,37 @@ use std::time::Duration;
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "cmd", rename_all = "lowercase")]
 pub enum Request {
-    Status { service: Option<String> },
-    Start { service: String },
-    Stop { service: String },
-    Restart { service: String },
-    Enable { service: String, now: bool },
-    Disable { service: String, now: bool },
+    Status {
+        service: Option<String>,
+    },
+    Start {
+        service: String,
+    },
+    Stop {
+        service: String,
+    },
+    Restart {
+        service: String,
+    },
+    Enable {
+        service: String,
+        now: bool,
+    },
+    Disable {
+        service: String,
+        now: bool,
+    },
     Reload,
     Info,
     Shutdown,
+    /// Import variables into the environment of services started afterwards
+    /// (graphical sessions import WAYLAND_DISPLAY, DISPLAY, …).
+    SetEnv {
+        vars: std::collections::BTreeMap<String, String>,
+    },
+    UnsetEnv {
+        names: Vec<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

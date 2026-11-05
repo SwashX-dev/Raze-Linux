@@ -131,6 +131,8 @@ pub struct Supervisor {
     boot_targets: Option<BTreeSet<String>>,
     started_ms: f64,
     boot_complete_ms: Option<f64>,
+    /// Variables imported with `r6 setenv`, applied to services started afterwards.
+    extra_env: BTreeMap<String, String>,
     /// No messages at all (tests).
     quiet: bool,
     /// Per-service progress messages (r6.verbose / R6_VERBOSE).
@@ -143,7 +145,7 @@ impl Supervisor {
     pub fn new(paths: Paths) -> Result<Supervisor, String> {
         let started_ms = sys::boottime_ms();
         let global = Global::load(&paths.global_conf).map_err(|e| e.to_string())?;
-        let set = ServiceSet::load_dir(&paths.service_dir).map_err(|e| e.to_string())?;
+        let set = ServiceSet::load_dirs(&paths.service_dirs).map_err(|e| e.to_string())?;
         let log_dir = paths
             .log_dir_override
             .clone()
@@ -181,6 +183,7 @@ impl Supervisor {
             boot_targets: None,
             started_ms,
             boot_complete_ms: None,
+            extra_env: BTreeMap::new(),
             quiet: std::env::var_os("R6_QUIET").is_some(),
             verbose: crate::init::verbose(),
         })
@@ -319,6 +322,11 @@ impl Supervisor {
             cmd.env("LANG", lang);
         }
         cmd.env("R6_SERVICE", name);
+        // Environment imported with `r6 setenv` (e.g. WAYLAND_DISPLAY for session
+        // services), then the service's own environment, which takes precedence.
+        for (k, v) in &self.extra_env {
+            cmd.env(k, v);
+        }
         for (k, v) in &svc.environment {
             cmd.env(k, v);
         }
@@ -380,14 +388,26 @@ impl Supervisor {
             },
         };
         let notify_w = notify_pair.as_ref().map(|(_, w)| w.as_raw_fd());
+        let (umask, nofile) = (svc.umask, svc.rlimit_nofile);
+        let oom = svc.oom_score_adjust.map(sys::OomAdjust::new);
         // SAFETY: the closure only calls async-signal-safe functions (setsid, sigprocmask,
-        // signal, dup2, fcntl, setgroups, setgid, setuid) and allocates nothing.
+        // signal, dup2, fcntl, umask, setrlimit, open/write/close, setgroups, setgid,
+        // setuid) and allocates nothing.
         unsafe {
             cmd.pre_exec(move || {
                 sys::setsid();
                 sys::reset_signals_in_child();
                 if let Some(w) = notify_w {
                     sys::dup2(w, 3)?;
+                }
+                if let Some(m) = umask {
+                    sys::set_umask(m);
+                }
+                if let Some(n) = nofile {
+                    sys::set_rlimit_nofile(n)?;
+                }
+                if let Some(o) = &oom {
+                    o.apply();
                 }
                 if let Some((groups, gid, uid)) = &creds {
                     sys::drop_privileges(groups, *gid, *uid)?;
@@ -971,11 +991,29 @@ impl Supervisor {
                 self.begin_shutdown();
                 Response::ok("shutting down")
             }
+            Request::SetEnv { vars } => {
+                for (k, v) in &vars {
+                    if k.is_empty() || k.contains('=') || k.contains('\0') || v.contains('\0') {
+                        return Response::err(format!("invalid environment variable '{k}'"));
+                    }
+                }
+                let n = vars.len();
+                self.extra_env.extend(vars);
+                Response::ok(format!(
+                    "{n} variable(s) set for services started from now on"
+                ))
+            }
+            Request::UnsetEnv { names } => {
+                for n in &names {
+                    self.extra_env.remove(n);
+                }
+                Response::ok(format!("{} variable(s) unset", names.len()))
+            }
         }
     }
 
     fn reload(&mut self) -> Response {
-        let new = match ServiceSet::load_dir(&self.paths.service_dir) {
+        let new = match ServiceSet::load_dirs(&self.paths.service_dirs) {
             Ok(s) => s,
             Err(e) => {
                 return Response::err(format!("configuration rejected, keeping current: {e}"))

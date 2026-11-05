@@ -5,7 +5,7 @@ use r6::proto::{call, Request, Response, ServiceStatus};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-const USAGE: &str = "usage: r6 [--json] <command> [args]
+const USAGE: &str = "usage: r6 [--user] [--json] <command> [args]
 
 commands:
   status [SERVICE]          show service state (all services if none given)
@@ -19,9 +19,15 @@ commands:
   reload                    re-read service definitions
   check                     validate service definitions without a running supervisor
   info                      supervisor statistics and boot timing
+  setenv NAME=VALUE...      set variables for services started from now on
+  import-env NAME...        copy variables from this shell into the supervisor
+  unsetenv NAME...          remove imported variables
+  shutdown                  stop all services and the supervisor (user supervisors)
   reboot | poweroff | halt  shut the system down via r6-init
+  suspend                   suspend to RAM (writes /sys/power/state; root)
 
 options:
+  --user                    talk to the per-user supervisor (r6-user) of this session
   --no-block                for start/stop/restart: do not wait
   --json                    machine-readable output";
 
@@ -157,6 +163,7 @@ fn main() {
         had
     };
     let json = flag("--json");
+    let user = flag("--user");
     let no_block = flag("--no-block");
     let now = flag("--now");
     let follow = flag("-f");
@@ -168,7 +175,11 @@ fn main() {
         println!("r6 {}", env!("CARGO_PKG_VERSION"));
         return;
     }
-    let paths = Paths::from_env();
+    let paths = if user {
+        r6::paths::user_paths().unwrap_or_else(|e| die(&e))
+    } else {
+        Paths::from_env()
+    };
     let cmd = args.first().cloned().unwrap_or_else(|| "status".into());
     let rest: Vec<String> = args.iter().skip(1).cloned().collect();
     let need = |n: usize| {
@@ -342,7 +353,7 @@ fn main() {
                 }
             }
         }
-        "check" => match r6::config::ServiceSet::load_dir(&paths.service_dir) {
+        "check" => match r6::config::ServiceSet::load_dirs(&paths.service_dirs) {
             Ok(s) => println!(
                 "ok: {} service(s) in {}",
                 s.services.len(),
@@ -350,6 +361,47 @@ fn main() {
             ),
             Err(e) => die(&format!("invalid configuration: {e}")),
         },
+        "setenv" | "import-env" | "unsetenv" => {
+            need(1);
+            let req = match cmd.as_str() {
+                "setenv" => Request::SetEnv {
+                    vars: rest
+                        .iter()
+                        .map(|kv| match kv.split_once('=') {
+                            Some((k, v)) => (k.to_string(), v.to_string()),
+                            None => die(&format!("expected NAME=VALUE, got '{kv}'")),
+                        })
+                        .collect(),
+                },
+                "import-env" => Request::SetEnv {
+                    vars: rest
+                        .iter()
+                        .filter_map(|k| std::env::var(k).ok().map(|v| (k.clone(), v)))
+                        .collect(),
+                },
+                _ => Request::UnsetEnv {
+                    names: rest.clone(),
+                },
+            };
+            let r = request(&paths, &req);
+            if !r.ok {
+                die(&r.error.unwrap_or_default());
+            }
+            println!("{}", r.message.unwrap_or_default());
+        }
+        "shutdown" => {
+            let r = request(&paths, &Request::Shutdown);
+            if !r.ok {
+                die(&r.error.unwrap_or_default());
+            }
+            println!("{}", r.message.unwrap_or_default());
+        }
+        "suspend" => {
+            // Kernel interface; elogind (`loginctl suspend`) is the unprivileged path.
+            if let Err(e) = std::fs::write("/sys/power/state", b"mem") {
+                die(&format!("suspend failed: {e}"));
+            }
+        }
         "poweroff" => signal_init(libc::SIGUSR1),
         "halt" => signal_init(libc::SIGUSR2),
         "reboot" => signal_init(libc::SIGTERM),

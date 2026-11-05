@@ -423,6 +423,55 @@ pub fn user_processes_remaining() -> bool {
     false
 }
 
+/// Set the file mode creation mask. Async-signal-safe.
+pub fn set_umask(mask: u32) {
+    unsafe {
+        libc::umask(mask as libc::mode_t);
+    }
+}
+
+/// Set RLIMIT_NOFILE (soft and hard). Async-signal-safe.
+pub fn set_rlimit_nofile(n: u64) -> io::Result<()> {
+    let lim = libc::rlimit {
+        rlim_cur: n as libc::rlim_t,
+        rlim_max: n as libc::rlim_t,
+    };
+    cvt(unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &lim) }).map(|_| ())
+}
+
+/// A pre-formatted write to /proc/self/oom_score_adj, so that applying it after fork
+/// needs no allocation.
+pub struct OomAdjust {
+    text: [u8; 8],
+    len: usize,
+}
+
+impl OomAdjust {
+    pub fn new(value: i32) -> OomAdjust {
+        let s = value.to_string();
+        let mut text = [0u8; 8];
+        let len = s.len().min(8);
+        text[..len].copy_from_slice(&s.as_bytes()[..len]);
+        OomAdjust { text, len }
+    }
+
+    /// Best effort: failures (e.g. lowering below the parent's value unprivileged)
+    /// are ignored. Async-signal-safe.
+    pub fn apply(&self) {
+        const PATH: &[u8] = b"/proc/self/oom_score_adj\0";
+        unsafe {
+            let fd = libc::open(
+                PATH.as_ptr() as *const libc::c_char,
+                libc::O_WRONLY | libc::O_CLOEXEC,
+            );
+            if fd >= 0 {
+                libc::write(fd, self.text.as_ptr() as *const libc::c_void, self.len);
+                libc::close(fd);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

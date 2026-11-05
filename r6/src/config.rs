@@ -79,6 +79,9 @@ struct RawService {
     working_directory: Option<PathBuf>,
     log: Option<LogTarget>,
     enable: Option<bool>,
+    umask: Option<String>,
+    rlimit_nofile: Option<u64>,
+    oom_score_adjust: Option<i32>,
 }
 
 #[derive(Debug, Clone)]
@@ -103,6 +106,12 @@ pub struct Service {
     pub working_directory: Option<PathBuf>,
     pub log: LogTarget,
     pub enable: bool,
+    /// File mode creation mask (octal in the TOML: `umask = "027"`).
+    pub umask: Option<u32>,
+    /// RLIMIT_NOFILE soft and hard limit for the service.
+    pub rlimit_nofile: Option<u64>,
+    /// Value written to /proc/self/oom_score_adj (-1000..1000).
+    pub oom_score_adjust: Option<i32>,
 }
 
 #[derive(Debug)]
@@ -210,6 +219,20 @@ impl Service {
         if kind == Kind::Oneshot && restart == Restart::Always {
             return Err(inv("oneshot services cannot use 'restart = always'"));
         }
+        let umask = match raw.umask.as_deref() {
+            None => None,
+            Some(u) => Some(
+                u32::from_str_radix(u.trim_start_matches("0o"), 8)
+                    .ok()
+                    .filter(|m| *m <= 0o777)
+                    .ok_or_else(|| inv(&format!("invalid umask '{u}' (octal, e.g. \"022\")")))?,
+            ),
+        };
+        if let Some(adj) = raw.oom_score_adjust {
+            if !(-1000..=1000).contains(&adj) {
+                return Err(inv("oom_score_adjust must be between -1000 and 1000"));
+            }
+        }
         let restart_max = raw.restart_max.unwrap_or(5);
         let restart_window_s = raw.restart_window_s.unwrap_or(60);
         if restart_window_s == 0 {
@@ -236,6 +259,9 @@ impl Service {
             working_directory: raw.working_directory,
             log: raw.log.unwrap_or(LogTarget::File),
             enable: raw.enable.unwrap_or(false),
+            umask,
+            rlimit_nofile: raw.rlimit_nofile,
+            oom_score_adjust: raw.oom_score_adjust,
         })
     }
 }
@@ -255,10 +281,26 @@ impl ServiceSet {
     /// Load every `*.toml` file in `dir`. Invalid files fail the whole load so that a
     /// broken configuration is detected before anything is started.
     pub fn load_dir(dir: &Path) -> Result<ServiceSet, ConfigError> {
+        Self::load_dirs(&[dir.to_path_buf()])
+    }
+
+    /// Load several service directories in order; a service defined in a later
+    /// directory replaces one of the same name from an earlier directory (for example
+    /// `/etc/r6/user-services` overlaid by `~/.config/r6/services`).
+    pub fn load_dirs(dirs: &[PathBuf]) -> Result<ServiceSet, ConfigError> {
         let mut services = BTreeMap::new();
+        for dir in dirs {
+            Self::load_into(dir, &mut services)?;
+        }
+        let set = ServiceSet { services };
+        set.validate()?;
+        Ok(set)
+    }
+
+    fn load_into(dir: &Path, services: &mut BTreeMap<String, Service>) -> Result<(), ConfigError> {
         let rd = match std::fs::read_dir(dir) {
             Ok(rd) => rd,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(ServiceSet::default()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
             Err(e) => return Err(ConfigError::Io(dir.into(), e)),
         };
         let mut paths: Vec<PathBuf> = rd
@@ -277,9 +319,7 @@ impl ServiceSet {
             let svc = Service::parse(&name, &text, &path)?;
             services.insert(name, svc);
         }
-        let set = ServiceSet { services };
-        set.validate()?;
-        Ok(set)
+        Ok(())
     }
 
     pub fn from_services(list: Vec<Service>) -> Result<ServiceSet, ConfigError> {
@@ -386,6 +426,29 @@ mod tests {
         .is_err());
         let s = p("a", "command = [\"/bin/true\"]\ntype = \"oneshot\"").unwrap();
         assert_eq!(s.restart, Restart::Never);
+    }
+
+    #[test]
+    fn umask_rlimit_oom() {
+        let s = p("a", "command = [\"/bin/true\"]\numask = \"027\"\nrlimit_nofile = 65536\noom_score_adjust = -500").unwrap();
+        assert_eq!(s.umask, Some(0o027));
+        assert_eq!(s.rlimit_nofile, Some(65536));
+        assert_eq!(s.oom_score_adjust, Some(-500));
+        assert!(p("a", "command = [\"/bin/true\"]\numask = \"999\"").is_err());
+        assert!(p("a", "command = [\"/bin/true\"]\noom_score_adjust = 2000").is_err());
+    }
+
+    #[test]
+    fn later_directories_override_earlier_ones() {
+        let a = tempfile::tempdir().unwrap();
+        let b = tempfile::tempdir().unwrap();
+        std::fs::write(a.path().join("x.toml"), "command = [\"/bin/a\"]").unwrap();
+        std::fs::write(a.path().join("y.toml"), "command = [\"/bin/y\"]").unwrap();
+        std::fs::write(b.path().join("x.toml"), "command = [\"/bin/b\"]").unwrap();
+        let set = ServiceSet::load_dirs(&[a.path().into(), b.path().into(), "/nonexistent".into()])
+            .unwrap();
+        assert_eq!(set.services["x"].command[0], "/bin/b");
+        assert!(set.services.contains_key("y"));
     }
 
     #[test]
