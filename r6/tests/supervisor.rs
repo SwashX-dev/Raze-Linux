@@ -647,7 +647,7 @@ fn user_supervisor_uses_session_locations() {
     std::fs::write(
         home.join(".config/r6/services/hello.toml"),
         format!(
-            "command = [\"/bin/sh\", \"-c\", \"echo hi > {}; exec sleep 1000\"]\nenable = true\n",
+            "command = [\"/bin/sh\", \"-c\", \"echo $XDG_RUNTIME_DIR > {}; exec sleep 1000\"]\nenable = true\n",
             out.display()
         ),
     )
@@ -665,6 +665,11 @@ fn user_supervisor_uses_session_locations() {
     let mut guard = KillOnDrop(child);
     assert!(wait_until(Duration::from_secs(5), || out.exists()));
     assert!(runtime.join("r6/control.sock").exists());
+    // Session variables reach user services.
+    let ok = wait_until(Duration::from_secs(2), || {
+        std::fs::read_to_string(&out).unwrap_or_default().trim() == runtime.display().to_string()
+    });
+    assert!(ok, "service saw XDG_RUNTIME_DIR={:?}", std::fs::read_to_string(&out));
     let mut st = Command::new(env!("CARGO_BIN_EXE_r6"));
     env(&mut st);
     let o = st

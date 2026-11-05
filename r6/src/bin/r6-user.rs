@@ -26,6 +26,35 @@ fn main() {
             std::process::exit(1);
         }
     };
+    // Services get a clean environment; pass on the login session's identity and
+    // locations (an explicit list, not everything the session happens to have).
+    const SESSION_VARS: &[&str] = &[
+        "HOME",
+        "USER",
+        "LOGNAME",
+        "SHELL",
+        "LANG",
+        "LANGUAGE",
+        "XDG_RUNTIME_DIR",
+        "XDG_SESSION_ID",
+        "XDG_SESSION_TYPE",
+        "XDG_SESSION_CLASS",
+        "XDG_SEAT",
+        "XDG_VTNR",
+        "XDG_DATA_DIRS",
+        "XDG_CONFIG_DIRS",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "XDG_STATE_HOME",
+        "XDG_CACHE_HOME",
+        "DBUS_SESSION_BUS_ADDRESS",
+        "LOCALE_ARCHIVE",
+        "TZDIR",
+    ];
+    sup.set_env(
+        std::env::vars()
+            .filter(|(k, _)| SESSION_VARS.contains(&k.as_str()) || k.starts_with("LC_")),
+    );
     sup.reap_stale();
     if !args.iter().any(|a| a == "--no-boot") {
         sup.activate_boot_set();

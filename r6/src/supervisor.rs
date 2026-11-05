@@ -309,6 +309,12 @@ impl Supervisor {
         }
     }
 
+    /// Add variables to the environment of every service started from now on (the
+    /// same mechanism as `r6 setenv`).
+    pub fn set_env(&mut self, vars: impl IntoIterator<Item = (String, String)>) {
+        self.extra_env.extend(vars);
+    }
+
     pub fn activate_boot_set(&mut self) {
         let enabled: Vec<String> = self
             .set
