@@ -45,6 +45,7 @@ let
     cat > $out/console.toml <<EOT
     description = "Root shell on the serial console"
     command = ["/bin/cttyhack", "/bin/sh", "-l"]
+    stop_signal = "HUP"
     restart = "always"
     log = "console"
     enable = true
@@ -80,7 +81,7 @@ let
     mk console 'exec /bin/setsid /bin/cttyhack /bin/sh -l'
     mk ticker 'while :; do echo tick; sleep 10; done'
     mkdir -p $out/ticker/log
-    printf '#!/bin/sh\nmkdir -p /run/log/ticker\nexec /s6bin/s6-log -b n3 s524288 T /run/log/ticker\n' > $out/ticker/log/run
+    printf '#!/bin/sh\nmkdir -p /run/log/ticker\nexec /bin/s6-log -b n3 s524288 T /run/log/ticker\n' > $out/ticker/log/run
     chmod +x $out/ticker/log/run
     for i in $(seq 1 ${toString benchServices}); do
       mk bench$i "/bin/boottime > /run/stamps/bench$i; exec sleep 100000"
@@ -95,7 +96,12 @@ let
     i=0; while [ "$(ls /run/stamps | wc -l)" -lt ${toString benchServices} ] && [ $i -lt 500 ]; do sleep 0.01; i=$((i+1)); done
     last=$(cat /run/stamps/* | sort -n | tail -1)
     echo "RAZE-CORE: init=$(cat /proc/1/comm) services_started_ms=$last"
-    echo "RAZE-CORE: pid1_start_ms=''${R6_INIT_START_MS:-unknown}"
+    if [ "$(cat /proc/1/comm)" = r6-init ]; then
+      pid1=$(r6 --json info | sed -n 's/.*"init_start_ms": \([0-9.]*\).*/\1/p')
+    else
+      pid1=$(cat /run/pid1-start)
+    fi
+    echo "RAZE-CORE: pid1_start_ms=$pid1"
     # Supervision overhead: RSS of the init + supervision processes.
     total=0; count=0
     for p in /proc/[0-9]*; do
@@ -116,7 +122,11 @@ let
       [ -n "$new" ] && [ "$new" != "$old" ] && echo "RAZE-CORE: restart-check PASS ($old -> $new)" || echo "RAZE-CORE: restart-check FAIL"
       r6 logs ticker -n 3
       i=0; while ! grep -q nameserver /etc/resolv.conf 2>/dev/null && [ $i -lt 100 ]; do sleep 0.1; i=$((i+1)); done
-      ip -4 addr show eth0 | grep -q inet && echo "RAZE-CORE: network PASS" || echo "RAZE-CORE: network FAIL"
+      if ip -4 addr show eth0 2>/dev/null | grep -q inet; then
+        echo "RAZE-CORE: network PASS ($(ip -4 -o addr show eth0 | awk '{print $4}'))"
+      else
+        echo "RAZE-CORE: network FAIL"; ip link; r6 logs network -n 20
+      fi
     fi
     echo "RAZE-CORE: selftest done"
     if grep -q raze.poweroff /proc/cmdline; then
@@ -128,44 +138,75 @@ let
   s6Init = pkgs.writeScript "s6-init" ''
     #!/bin/sh
     # Minimal s6 PID 1 equivalent to r6-init's job here: mount API fs, exec s6-svscan.
-    export PATH=/bin:/sbin:/s6bin:/execline-bin
+    t0=$(/bin/boottime)
+    export PATH=/bin:/sbin
     mount -t proc proc /proc; mount -t sysfs sys /sys
     mount -t devtmpfs dev /dev 2>/dev/null; mount -t tmpfs -o mode=0755 run /run
     mkdir -p /run/stamps /run/s6
+    echo "$t0" > /run/pid1-start
     cp -r /etc/s6/sv /run/s6/sv
     /etc/r6/rc.init
-    exec /s6bin/s6-svscan /run/s6/sv
+    exec /bin/s6-svscan /run/s6/sv
+  '';
+
+  # Kernel modules for virtio devices (no-ops on kernels with virtio built in).
+  modulesClosure = pkgs.makeModulesClosure {
+    kernel = kernel.modules or kernel;
+    firmware = pkgs.emptyDirectory;
+    rootModules = [ "virtio_pci" "virtio_net" "virtio_blk" "virtio_rng" "af_packet" ];
+    allowMissing = true;
+  };
+  # busybox modprobe loads plain .ko files: decompress and regenerate modules.dep.
+  modules = pkgs.runCommand "raze-core-modules" { nativeBuildInputs = [ pkgs.xz pkgs.zstd pkgs.kmod ]; } ''
+    mkdir -p $out
+    if [ -d ${modulesClosure}/lib ]; then
+      cp -r --no-preserve=mode ${modulesClosure}/lib $out/lib
+      find $out/lib -name '*.ko.xz' -exec xz -d {} +
+      find $out/lib -name '*.ko.zst' -exec zstd -d --rm -q {} +
+      for v in $out/lib/modules/*; do depmod -b $out $(basename $v); done
+    else
+      mkdir -p $out/lib/modules
+    fi
   '';
 
   rcInit = pkgs.writeScript "rc.init" ''
     #!/bin/sh
+    for m in virtio_pci virtio_net virtio_blk virtio_rng af_packet; do modprobe -q $m 2>/dev/null; done
     mkdir -p /run/stamps /var/log /tmp
     ip link set lo up
     hostname raze-core
+  '';
+
+  # One root tree: busybox applets, r6, s6 and the image's configuration.
+  root = pkgs.runCommand "raze-core-root" { } ''
+    mkdir -p $out/bin $out/sbin $out/etc/r6
+    ln -s ${modules}/lib $out/lib
+    for a in $(${busybox}/bin/busybox --list); do ln -s ${busybox}/bin/busybox $out/bin/$a; done
+    ln -sf ${boottime}/bin/boottime $out/bin/boottime
+    ln -sf ${r6}/bin/r6 $out/bin/r6
+    ln -sf ${r6}/bin/r6-log $out/bin/r6-log
+    ln -s ${r6}/bin/r6-init $out/sbin/r6-init
+    ln -s ${r6}/bin/r6-supervise $out/sbin/r6-supervise
+    ln -s ${s6Init} $out/sbin/s6-init
+    for b in ${pkgs.s6}/bin/*; do ln -sf $b $out/bin/$(basename $b); done
+    cp ${udhcpcScript} $out/etc/udhcpc.script
+    cp ${selftest} $out/etc/selftest
+    cp ${rcInit} $out/etc/r6/rc.init
+    cp -r ${r6Services} $out/etc/r6/services
+    mkdir -p $out/etc/s6 && cp -r ${s6Tree} $out/etc/s6/sv
+    echo "root:x:0:0:root:/root:/bin/sh" > $out/etc/passwd
+    echo "root:x:0:" > $out/etc/group
+    printf "export PATH=/bin:/sbin\nexport PS1='raze-core# '\n" > $out/etc/profile
   '';
 
   initrd = pkgs.makeInitrdNG {
     name = "raze-core-${init}";
     compressor = "zstd";
     contents = [
-      { source = "${busybox}/bin"; target = "/bin"; }
-      { source = "${busybox}/bin"; target = "/sbin"; }
-      { source = "${boottime}/bin/boottime"; target = "/bin/boottime"; }
-      { source = udhcpcScript; target = "/etc/udhcpc.script"; }
-      { source = selftest; target = "/etc/selftest"; }
-      { source = rcInit; target = "/etc/r6/rc.init"; }
-      { source = r6Services; target = "/etc/r6/services"; }
-      { source = "${r6}/bin/r6-init"; target = "/sbin/r6-init"; }
-      { source = "${r6}/bin/r6-supervise"; target = "/sbin/r6-supervise"; }
-      { source = "${r6}/bin/r6"; target = "/bin/r6"; }
-      { source = "${r6}/bin/r6-log"; target = "/bin/r6-log"; }
-      { source = s6Tree; target = "/etc/s6/sv"; }
-      { source = s6Init; target = "/sbin/s6-init"; }
-      { source = "${pkgs.pkgsStatic.s6}/bin"; target = "/s6bin"; }
-      { source = "${pkgs.pkgsStatic.execline}/bin"; target = "/execline-bin"; }
-      { source = pkgs.writeText "passwd" "root:x:0:0:root:/root:/bin/sh\n"; target = "/etc/passwd"; }
-      { source = pkgs.writeText "group" "root:x:0:\n"; target = "/etc/group"; }
-      { source = pkgs.writeText "profile" "export PATH=/bin:/sbin:/s6bin:/execline-bin\nexport PS1='raze-core# '\n"; target = "/etc/profile"; }
+      { source = "${root}/bin"; target = "/bin"; }
+      { source = "${root}/sbin"; target = "/sbin"; }
+      { source = "${root}/etc"; target = "/etc"; }
+      { source = "${root}/lib"; target = "/lib"; }
     ];
   };
 in

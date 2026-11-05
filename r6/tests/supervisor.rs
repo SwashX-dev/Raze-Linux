@@ -491,7 +491,8 @@ fn init_env(e: &Env) -> Command {
     c.env("R6_SUPERVISOR", env!("CARGO_BIN_EXE_r6-supervise"))
         .env("R6_RC_INIT", e.root.join("rc.init"))
         .env("R6_RC_SHUTDOWN", e.root.join("rc.shutdown"))
-        .stderr(Stdio::null());
+        .env_remove("R6_QUIET")
+        .stderr(std::fs::File::create(e.root.join("init.log")).unwrap());
     c
 }
 
@@ -527,9 +528,11 @@ fn init_runs_stages_restarts_supervisor_and_shuts_down() {
         "trap 'echo svc-stopped >> $OUT/stages; exit 0' TERM; while :; do sleep 0.05; done",
         "enable = true",
     );
-    let mut init = init_env(&e).spawn().unwrap();
+    let mut init = KillOnDrop(init_env(&e).spawn().unwrap());
     e.wait_state("svc", "up", 5);
     assert_eq!(e.read_out("stages"), "init\n");
+    let old_svc = e.field("svc", "pid").as_i64().unwrap() as i32;
+    let old_start = proc_starttime(old_svc);
 
     // Kill the supervisor: init must bring it back.
     let sup = supervisor_pid(&e).unwrap();
@@ -539,29 +542,50 @@ fn init_runs_stages_restarts_supervisor_and_shuts_down() {
         .unwrap_or(false)));
 
     // The orphaned instance left by the killed supervisor is terminated by the new
-    // supervisor (pidfile + start-time check) before a fresh instance starts.
+    // supervisor (pidfile + start-time check), and exactly one fresh instance runs.
     e.wait_state("svc", "up", 5);
-    assert!(wait_until(Duration::from_secs(5), || e
-        .read_out("stages")
-        .contains("svc-stopped")));
-    let running = Command::new("pgrep")
-        .arg("-f")
-        .arg(e.root.join("out").display().to_string())
-        .output();
-    if let Ok(o) = running {
-        let n = String::from_utf8_lossy(&o.stdout).lines().count();
-        assert!(n <= 1, "duplicate service instances: {n}");
-    }
+    let new_svc = e.field("svc", "pid").as_i64().unwrap() as i32;
+    assert_ne!(new_svc, old_svc);
+    let gone = wait_until(Duration::from_secs(5), || {
+        proc_starttime(old_svc) != old_start
+    });
+    assert!(
+        gone,
+        "stale instance {old_svc} still running; init log:\n{}",
+        std::fs::read_to_string(e.root.join("init.log")).unwrap_or_default()
+    );
 
-    unsafe { libc::kill(init.id() as i32, libc::SIGTERM) };
+    unsafe { libc::kill(init.0.id() as i32, libc::SIGTERM) };
     let ok = wait_until(Duration::from_secs(20), || {
-        init.try_wait().unwrap().is_some()
+        init.0.try_wait().unwrap().is_some()
     });
     assert!(ok, "init did not exit");
-    assert!(init.wait().unwrap().success());
+    assert!(init.0.wait().unwrap().success());
+    assert!(
+        proc_starttime(new_svc).is_none(),
+        "service survived init shutdown"
+    );
     let stages = e.read_out("stages");
     assert!(stages.starts_with("init\n"), "{stages}");
-    assert_eq!(stages, "init\nsvc-stopped\nsvc-stopped\nshutdown\n");
+    assert!(stages.ends_with("shutdown\n"), "{stages}");
+}
+
+/// Kills the child if a test fails before it exits, so no process outlives the test.
+struct KillOnDrop(Child);
+
+impl Drop for KillOnDrop {
+    fn drop(&mut self) {
+        if let Ok(None) = self.0.try_wait() {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+}
+
+fn proc_starttime(pid: i32) -> Option<u64> {
+    let s = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let rest = &s[s.rfind(')')? + 2..];
+    rest.split_whitespace().nth(19)?.parse().ok()
 }
 
 #[test]

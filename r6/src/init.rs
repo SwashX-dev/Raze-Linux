@@ -257,7 +257,8 @@ impl Init {
         let deadline = Instant::now() + Duration::from_secs(3);
         while Instant::now() < deadline {
             while sys::reap_any().is_some() {}
-            if unsafe { libc::kill(-1, 0) } < 0 {
+            // kill(-1, 0) cannot be used here: it also "succeeds" for kernel threads.
+            if !sys::user_processes_remaining() {
                 break;
             }
             std::thread::sleep(Duration::from_millis(20));

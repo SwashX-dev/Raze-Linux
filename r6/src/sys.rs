@@ -383,3 +383,55 @@ pub fn proc_starttime(pid: i32) -> Option<u64> {
     let rest = &s[s.rfind(')')? + 2..];
     rest.split_whitespace().nth(19)?.parse().ok()
 }
+
+/// True if any userspace process other than the caller and PID 1 is still alive.
+/// Kernel threads (PF_KTHREAD) are ignored; zombies count until they are reaped.
+pub fn user_processes_remaining() -> bool {
+    const PF_KTHREAD: u64 = 0x0020_0000;
+    let me = getpid();
+    let Ok(rd) = std::fs::read_dir("/proc") else {
+        return false;
+    };
+    for e in rd.flatten() {
+        let Some(pid) = e.file_name().to_str().and_then(|s| s.parse::<i32>().ok()) else {
+            continue;
+        };
+        if pid == 1 || pid == me {
+            continue;
+        }
+        let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else {
+            continue;
+        };
+        let Some(rest) = stat.rfind(')').map(|i| &stat[i + 2..]) else {
+            continue;
+        };
+        // Fields after "comm": state(0) ppid(1) pgrp(2) session(3) tty(4) tpgid(5) flags(6)
+        let flags: u64 = rest
+            .split_whitespace()
+            .nth(6)
+            .and_then(|f| f.parse().ok())
+            .unwrap_or(0);
+        if flags & PF_KTHREAD == 0 {
+            return true;
+        }
+    }
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn kernel_threads_are_not_user_processes() {
+        // The test runner's own parent (cargo) is a user process, so this is true here;
+        // the important property is that it does not panic on /proc parsing.
+        let _ = super::user_processes_remaining();
+        // kthreadd (pid 2) is visible on normal hosts and must be classified as a kthread.
+        if let Ok(stat) = std::fs::read_to_string("/proc/2/stat") {
+            if stat.contains("(kthreadd)") {
+                let rest = &stat[stat.rfind(')').unwrap() + 2..];
+                let flags: u64 = rest.split_whitespace().nth(6).unwrap().parse().unwrap();
+                assert_ne!(flags & 0x0020_0000, 0);
+            }
+        }
+    }
+}

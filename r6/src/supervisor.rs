@@ -471,6 +471,7 @@ impl Supervisor {
                     .map(|s| s.stop_signal)
                     .unwrap_or(libc::SIGTERM);
                 Self::signal_group(pid, sig);
+                let _ = sys::kill(pid, libc::SIGCONT);
                 victims.push((pid, st));
             }
         }
