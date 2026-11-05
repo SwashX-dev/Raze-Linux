@@ -45,7 +45,34 @@ lower), r6 with 25 fewer processes and lower RSS, s6 with lower PSS.
 
 ### Rift vs niri — same r6 system, virgl GPU (3 interleaved runs each)
 
-@@COMPOSITOR@@
+`benchmarks/compositor.py`, systems from `benchmarks/variants/desktop.nix`. Both
+render with GLES on the virgl GPU (Rift reports `drm-gles`). Session = every process
+of the logged-in user: Rift + Rift Shell + clipboard history, or niri + waybar + mako
++ swaybg; PipeWire, portals and the terminal in both.
+
+| Metric (median of 3) | Rift + Rift Shell | niri + waybar session |
+|---|---|---|
+| Compositor CPU, idle, per 60 s | **0.00 s** | 0.05 s |
+| Session CPU, idle, per 60 s | **0.01 s** | 0.08 s |
+| Compositor RSS | **75 MB** | 104 MB |
+| Compositor PSS | **61 MB** | 83 MB |
+| Session PSS | **217 MB** | 244 MB |
+| System memory used | **504 MB** | 513 MB |
+| Compositor CPU, terminal printing every 50 ms, per 10 s | 0.48 s | 0.50 s |
+| Session CPU, same workload, per 10 s | 0.79 s | 0.81 s |
+
+**Reading:** both compositors cost the same under this workload; at idle Rift does
+no work at all and its session uses 27 MB less memory. The session was **not** lighter
+at first; these changes, each measured with this benchmark, got it there:
+
+| Rift session change | Session PSS | System memory used |
+|---|---|---|
+| First measurement (Rift Shell on OpenGL, all overlays loaded, Xwayland at login) | 352 MB | 600 MB |
+| Overlays created on demand (`LazyLoader`) | 344 MB | 596 MB |
+| Rift Shell on Qt's software renderer + Xwayland started on first X client | **217 MB** | **504 MB** |
+
+(Compositor PSS rose from 42 to 61 MB in the last step only because Rift no longer
+shares the GL driver pages with the shell; its RSS is unchanged at 75 MB.)
 
 ### Rift Shell memory
 
