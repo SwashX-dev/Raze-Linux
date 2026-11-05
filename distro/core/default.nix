@@ -6,6 +6,14 @@
 { lib, pkgs, kernel ? pkgs.linuxPackages_latest.kernel, init ? "r6" }:
 let
   busybox = pkgs.pkgsStatic.busybox;
+  # Static s6 for a like-for-like comparison with the static r6 binaries. Static
+  # s6/execline in this nixpkgs revision only lack pkg-config at build time.
+  withPkgConfig = drv: drv.overrideAttrs (o: {
+    nativeBuildInputs = (o.nativeBuildInputs or [ ]) ++ [ pkgs.buildPackages.pkg-config ];
+  });
+  s6Static = withPkgConfig (pkgs.pkgsStatic.s6.override {
+    execline = withPkgConfig pkgs.pkgsStatic.execline;
+  });
   r6 = pkgs.pkgsStatic.r6 or pkgs.r6;
   boottime = pkgs.writeCBin "boottime" ''
     #include <stdio.h>
@@ -95,24 +103,24 @@ let
     # Wait for all benchmark services to have started.
     i=0; while [ "$(ls /run/stamps | wc -l)" -lt ${toString benchServices} ] && [ $i -lt 500 ]; do sleep 0.01; i=$((i+1)); done
     last=$(cat /run/stamps/* | sort -n | tail -1)
-    echo "RAZE-CORE: init=$(cat /proc/1/comm) services_started_ms=$last"
     if [ "$(cat /proc/1/comm)" = r6-init ]; then
       pid1=$(r6 --json info | sed -n 's/.*"init_start_ms": \([0-9.]*\).*/\1/p')
     else
       pid1=$(cat /run/pid1-start)
     fi
-    echo "RAZE-CORE: pid1_start_ms=$pid1"
-    # Supervision overhead: RSS of the init + supervision processes.
-    total=0; count=0
+    # Supervision overhead: RSS/PSS of the init + supervision processes.
+    total=0; count=0; ptotal=0
     for p in /proc/[0-9]*; do
       c=$(cat $p/comm 2>/dev/null) || continue
       case "$c" in r6-init|r6-supervise|s6-svscan|s6-supervise|s6-log|init)
-        kb=$(awk '/^VmRSS/ {print $2}' $p/status); total=$((total + ''${kb:-0})); count=$((count+1)) ;;
+        kb=$(awk '/^VmRSS/ {print $2}' $p/status); total=$((total + ''${kb:-0})); count=$((count+1))
+        pss=$(awk '/^Pss:/ {print $2}' $p/smaps_rollup); ptotal=$((ptotal + ''${pss:-0})) ;;
       esac
     done
-    echo "RAZE-CORE: supervision_processes=$count supervision_rss_kib=$total"
-    echo "RAZE-CORE: mem_used_kib=$(awk '/MemTotal/ {t=$2} /MemAvailable/ {a=$2} END {print t-a}' /proc/meminfo)"
-    echo "RAZE-CORE: processes=$(ls -d /proc/[0-9]* | wc -l)"
+    mem=$(awk '/MemTotal/ {t=$2} /MemAvailable/ {a=$2} END {print t-a}' /proc/meminfo)
+    procs=$(ls -d /proc/[0-9]* | wc -l)
+    # One line, one write: the serial console is shared with other services.
+    echo "RAZE-CORE: RESULT init=$(cat /proc/1/comm) services_started_ms=$last pid1_start_ms=$pid1 supervision_processes=$count supervision_rss_kib=$total supervision_pss_kib=$ptotal mem_used_kib=$mem processes=$procs"
     if [ "$(cat /proc/1/comm)" = r6-init ]; then
       r6 status
       # Supervision check: kill a service and verify it comes back.
@@ -140,6 +148,7 @@ let
     # Minimal s6 PID 1 equivalent to r6-init's job here: mount API fs, exec s6-svscan.
     t0=$(/bin/boottime)
     export PATH=/bin:/sbin
+    mkdir -p /proc /sys /dev /run /tmp
     mount -t proc proc /proc; mount -t sysfs sys /sys
     mount -t devtmpfs dev /dev 2>/dev/null; mount -t tmpfs -o mode=0755 run /run
     mkdir -p /run/stamps /run/s6
@@ -188,7 +197,7 @@ let
     ln -s ${r6}/bin/r6-init $out/sbin/r6-init
     ln -s ${r6}/bin/r6-supervise $out/sbin/r6-supervise
     ln -s ${s6Init} $out/sbin/s6-init
-    for b in ${pkgs.s6}/bin/*; do ln -sf $b $out/bin/$(basename $b); done
+    for b in ${s6Static}/bin/*; do ln -sf $b $out/bin/$(basename $b); done
     cp ${udhcpcScript} $out/etc/udhcpc.script
     cp ${selftest} $out/etc/selftest
     cp ${rcInit} $out/etc/r6/rc.init

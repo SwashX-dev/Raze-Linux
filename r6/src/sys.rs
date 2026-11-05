@@ -46,6 +46,11 @@ pub fn signalfd(sigs: &[i32]) -> io::Result<OwnedFd> {
 
 /// Read all pending signals from a signalfd.
 pub fn read_signals(fd: &OwnedFd) -> Vec<i32> {
+    use std::os::fd::AsFd;
+    read_signals_borrowed(fd.as_fd())
+}
+
+pub fn read_signals_borrowed(fd: std::os::fd::BorrowedFd<'_>) -> Vec<i32> {
     let mut out = Vec::new();
     loop {
         let mut info: libc::signalfd_siginfo = unsafe { std::mem::zeroed() };

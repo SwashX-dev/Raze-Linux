@@ -30,6 +30,10 @@ fn log(msg: &str) {
 
 struct Init {
     pid1: bool,
+    /// signalfd for SIGCHLD and the halt signals (-1 if unavailable).
+    sigfd: std::os::fd::RawFd,
+    /// A halt signal received while waiting for a stage script.
+    pending_halt: Option<Halt>,
     supervisor: PathBuf,
     sup_pid: Option<i32>,
     crashes: VecDeque<Instant>,
@@ -56,7 +60,13 @@ fn find_supervisor() -> PathBuf {
     "/run/current-system/sw/bin/r6-supervise".into()
 }
 
-fn kernel_cmdline_has(flag: &str) -> bool {
+/// Per-step progress messages go to the console only with `r6.verbose` on the kernel
+/// command line (or R6_VERBOSE set): console writes are synchronous and slow boot.
+pub fn verbose() -> bool {
+    std::env::var_os("R6_VERBOSE").is_some() || kernel_cmdline_has("r6.verbose")
+}
+
+pub fn kernel_cmdline_has(flag: &str) -> bool {
     std::fs::read_to_string("/proc/cmdline")
         .map(|c| c.split_whitespace().any(|w| w == flag))
         .unwrap_or(false)
@@ -202,10 +212,30 @@ impl Init {
                     return true;
                 }
             }
-            if Instant::now() >= deadline {
+            let now = Instant::now();
+            if now >= deadline {
                 return false;
             }
-            std::thread::sleep(Duration::from_millis(10));
+            // Sleep until SIGCHLD (or a halt signal) arrives instead of polling on a timer.
+            let wait = (deadline - now).min(Duration::from_millis(500));
+            if self.sigfd >= 0 {
+                let mut fds = [PollFd {
+                    fd: self.sigfd,
+                    readable: false,
+                    hangup: false,
+                }];
+                let _ = sys::poll(&mut fds, Some(wait));
+                if fds[0].readable {
+                    let fd = unsafe { std::os::fd::BorrowedFd::borrow_raw(self.sigfd) };
+                    for sig in sys::read_signals_borrowed(fd) {
+                        if let Some(h) = halt_for(sig) {
+                            self.pending_halt = Some(h);
+                        }
+                    }
+                }
+            } else {
+                std::thread::sleep(wait.min(Duration::from_millis(10)));
+            }
         }
     }
 
@@ -321,6 +351,15 @@ fn unmount_all() {
     }
 }
 
+fn halt_for(sig: i32) -> Option<Halt> {
+    match sig {
+        libc::SIGUSR1 | libc::SIGPWR => Some(Halt::Poweroff),
+        libc::SIGUSR2 => Some(Halt::Halt),
+        libc::SIGTERM | libc::SIGINT => Some(Halt::Reboot),
+        _ => None,
+    }
+}
+
 pub fn main() -> ! {
     let start_ms = sys::boottime_ms();
     let pid1 = sys::getpid() == 1;
@@ -369,6 +408,8 @@ pub fn main() -> ! {
 
     let mut init = Init {
         pid1,
+        sigfd: sigfd.as_raw_fd(),
+        pending_halt: None,
         supervisor: find_supervisor(),
         sup_pid: None,
         crashes: VecDeque::new(),
@@ -380,10 +421,12 @@ pub fn main() -> ! {
         init.emergency_shell();
     }
     init.run_stage("R6_RC_INIT", "/etc/r6/rc.init", Duration::from_secs(300));
-    log(&format!(
-        "started in {:.2} ms; launching supervisor",
-        sys::boottime_ms() - start_ms
-    ));
+    if verbose() {
+        log(&format!(
+            "started in {:.2} ms; launching supervisor",
+            sys::boottime_ms() - start_ms
+        ));
+    }
     init.start_supervisor();
 
     loop {
@@ -397,15 +440,10 @@ pub fn main() -> ! {
                 hangup: false,
             }];
             let _ = sys::poll(&mut fds, timeout);
-            let mut halt = None;
+            let mut halt = init.pending_halt.take();
             if fds[0].readable {
                 for sig in sys::read_signals(&sigfd) {
-                    halt = match sig {
-                        libc::SIGUSR1 | libc::SIGPWR => Some(Halt::Poweroff),
-                        libc::SIGUSR2 => Some(Halt::Halt),
-                        libc::SIGTERM | libc::SIGINT => Some(Halt::Reboot),
-                        _ => halt,
-                    };
+                    halt = halt_for(sig).or(halt);
                 }
             }
             while let Some((pid, exit)) = sys::reap_any() {

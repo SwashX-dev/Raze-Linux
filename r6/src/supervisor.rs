@@ -131,6 +131,9 @@ pub struct Supervisor {
     boot_targets: Option<BTreeSet<String>>,
     started_ms: f64,
     boot_complete_ms: Option<f64>,
+    /// No messages at all (tests).
+    quiet: bool,
+    /// Per-service progress messages (r6.verbose / R6_VERBOSE).
     verbose: bool,
 }
 
@@ -178,12 +181,21 @@ impl Supervisor {
             boot_targets: None,
             started_ms,
             boot_complete_ms: None,
-            verbose: std::env::var_os("R6_QUIET").is_none(),
+            quiet: std::env::var_os("R6_QUIET").is_some(),
+            verbose: crate::init::verbose(),
         })
     }
 
+    /// Warnings and milestones (failures, boot summary, shutdown).
     fn say(&self, msg: &str) {
-        if self.verbose {
+        if !self.quiet {
+            eprintln!("r6: {msg}");
+        }
+    }
+
+    /// Per-service progress, only with r6.verbose.
+    fn debug(&self, msg: &str) {
+        if self.verbose && !self.quiet {
             eprintln!("r6: {msg}");
         }
     }
@@ -290,7 +302,7 @@ impl Supervisor {
             .filter(|(_, u)| u.wanted)
             .map(|(n, _)| n.clone())
             .collect();
-        self.say(&format!("activating {} service(s)", targets.len()));
+        self.debug(&format!("activating {} service(s)", targets.len()));
         self.boot_targets = Some(targets);
     }
 
@@ -424,7 +436,7 @@ impl Supervisor {
                     }
                     (Kind::Oneshot, _) => {}
                 }
-                self.say(&format!("started {name} (pid {pid})"));
+                self.debug(&format!("started {name} (pid {pid})"));
             }
             Err(e) => self.on_spawn_error(name, format!("exec {}: {e}", svc.command[0])),
         }
@@ -568,13 +580,13 @@ impl Supervisor {
             if u.restart_pending {
                 u.restart_pending = false;
             }
-            self.say(&format!("stopped {name} ({desc})"));
+            self.debug(&format!("stopped {name} ({desc})"));
             return;
         }
         let ok = exit.success();
         if kind == Some(Kind::Oneshot) && ok {
             u.set(State::Done);
-            self.say(&format!("{name} completed"));
+            self.debug(&format!("{name} completed"));
             return;
         }
         self.say(&format!("{name} exited unexpectedly ({desc})"));
