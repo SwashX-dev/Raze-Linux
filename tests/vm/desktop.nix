@@ -46,6 +46,11 @@ pkgs.testers.runNixOSTest {
             machine.succeed("iptables -S | grep -q nixos-fw")
             machine.wait_until_succeeds("grep -qx enabled /sys/kernel/sched_ext/state", timeout=60)
             machine.succeed("grep -q preempt=full /proc/cmdline")
+            # D-Bus activation (dbus-daemon + setuid launch helper) starts services
+            # on first use, as systemd would.
+            machine.succeed("dbus-send --system --print-reply --dest=org.freedesktop.UPower /org/freedesktop/UPower org.freedesktop.DBus.Properties.Get string:org.freedesktop.UPower string:DaemonVersion")
+            machine.succeed("pgrep -x upowerd")
+            machine.succeed("dbus-send --system --print-reply --dest=org.freedesktop.UDisks2 /org/freedesktop/UDisks2/Manager org.freedesktop.DBus.Properties.Get string:org.freedesktop.UDisks2.Manager string:Version")
             machine.succeed("logger -t raze-test hello-syslog")
             machine.wait_until_succeeds("r6 logs syslog | grep -q hello-syslog")
         else:

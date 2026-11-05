@@ -77,20 +77,29 @@ let
   # The unit's environment (PATH from `path`, plus `environment`).
   unitEnv = name: lib.filterAttrs (_: v: v != null) (lib.mapAttrs (_: toString) config.systemd.services.${name}.environment);
 
-  # r6 has no timers: a longrun that runs `command` at most once per `interval`
-  # seconds (persisted across reboots), first 10 minutes after boot.
-  periodic = name: interval: command: {
-    description = "Periodic: ${name} (every ${toString interval} s)";
+  # r6 has no timers: one longrun checks hourly (first 10 minutes after boot) and runs
+  # every job whose interval has passed; last runs persist across reboots.
+  periodicJobs = lib.optionalAttrs config.services.fstrim.enable {
+    # util-linux ships fstrim.service; this is its ExecStart.
+    fstrim = { interval = 604800; command = [ "${pkgs.util-linux}/bin/fstrim" "--listed-in" "/etc/fstab:/proc/self/mountinfo" "--verbose" "--quiet-unsupported" ]; };
+  } // lib.optionalAttrs config.services.logrotate.enable {
+    logrotate = { interval = 3600; command = unitExec "logrotate"; };
+  };
+  periodic = {
+    description = "Periodic jobs: ${lib.concatStringsSep ", " (lib.attrNames periodicJobs)}";
     restart = "always";
     command = sh ''
-      stamp=/var/lib/r6/periodic/${name}
       mkdir -p /var/lib/r6/periodic
       sleep 600
       while :; do
-        now=$(date +%s); last=$(cat $stamp 2>/dev/null || echo 0)
-        if [ $((now - last)) -ge ${toString interval} ]; then
-          ${lib.escapeShellArgs command} && echo "$now" > $stamp
-        fi
+        now=$(date +%s)
+        ${lib.concatStrings (lib.mapAttrsToList (name: job: ''
+          last=$(cat /var/lib/r6/periodic/${name} 2>/dev/null || echo 0)
+          if [ $((now - last)) -ge ${toString job.interval} ]; then
+            echo "running ${name}"
+            ${lib.escapeShellArgs job.command} && echo "$now" > /var/lib/r6/periodic/${name}
+          fi
+        '') periodicJobs)}
         sleep 3600
       done
     '';
@@ -462,22 +471,9 @@ in
           '';
         };
       }
-      // lib.optionalAttrs config.security.rtkit.enable {
-        rtkit = {
-          description = "Realtime scheduling broker";
-          depends = [ "dbus" ];
-          command = [ "${pkgs.rtkit}/libexec/rtkit-daemon" ];
-          restart = "always";
-        };
-      }
-      // lib.optionalAttrs config.services.upower.enable {
-        upower = {
-          description = "Power and battery information";
-          depends = [ "dbus" "udev-settle" ];
-          command = [ "${config.services.upower.package}/libexec/upowerd" ];
-          restart = "always";
-        };
-      }
+      # udisks2, upower and rtkit are not started here: like on systemd, dbus-daemon
+      # starts them on first use (their D-Bus service files have Exec= lines and
+      # the setuid launch helper is in /run/wrappers).
       // lib.optionalAttrs config.hardware.bluetooth.enable {
         bluetooth = {
           description = "Bluetooth";
@@ -491,15 +487,6 @@ in
           description = "Power profiles";
           depends = [ "dbus" ];
           command = [ "${config.services.power-profiles-daemon.package}/libexec/power-profiles-daemon" ];
-          restart = "always";
-        };
-      }
-      // lib.optionalAttrs config.services.udisks2.enable {
-        udisks2 = {
-          description = "Disk management";
-          depends = [ "dbus" "udev-settle" ];
-          wants = [ "polkit" ];
-          command = [ "${config.services.udisks2.package}/libexec/udisks2/udisksd" ];
           restart = "always";
         };
       }
@@ -555,13 +542,7 @@ in
           restart = "on-failure";
         };
       }
-      // lib.optionalAttrs config.services.fstrim.enable {
-        # util-linux ships fstrim.service; this is its ExecStart.
-        fstrim = periodic "fstrim" 604800 [ "${pkgs.util-linux}/bin/fstrim" "--listed-in" "/etc/fstab:/proc/self/mountinfo" "--verbose" "--quiet-unsupported" ];
-      }
-      // lib.optionalAttrs config.services.logrotate.enable {
-        logrotate = periodic "logrotate" 3600 (unitExec "logrotate");
-      }
+      // lib.optionalAttrs (periodicJobs != { }) { inherit periodic; }
       // lib.optionalAttrs config.services.openssh.enable {
         sshd = {
           description = "OpenSSH server";

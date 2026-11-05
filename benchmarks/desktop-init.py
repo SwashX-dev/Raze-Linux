@@ -36,9 +36,12 @@ echo "pid1=$(cat /proc/1/comm)"
 
 SETTLED = r"""
 awk '/MemTotal/{t=$2} /MemAvailable/{a=$2} END{print "mem_used_kib=" t-a}' /proc/meminfo
-n=0; for d in /proc/[0-9]*; do [ -s $d/cmdline ] && n=$((n+1)); done; echo "processes=$n"
+# Userspace processes: kernel threads have an empty cmdline (/proc files report size 0,
+# so read them instead of testing -s).
+pids=$(for d in /proc/[0-9]*; do [ -n "$(tr -d '\0' < $d/cmdline 2>/dev/null)" ] && echo ${d#/proc/}; done)
+echo "processes=$(echo "$pids" | grep -c .)"
 p1=$(awk '/VmRSS/{print $2}' /proc/1/status); echo "pid1_rss_kib=$p1"
-pss=0; for d in /proc/[0-9]*; do [ -s $d/cmdline ] || continue; v=$(awk '/^Pss:/{print $2}' $d/smaps_rollup 2>/dev/null); pss=$((pss+${v:-0})); done; echo "userspace_pss_kib=$pss"
+pss=0; for p in $pids; do v=$(awk '/^Pss:/{print $2}' /proc/$p/smaps_rollup 2>/dev/null); pss=$((pss+${v:-0})); done; echo "userspace_pss_kib=$pss"
 """
 
 

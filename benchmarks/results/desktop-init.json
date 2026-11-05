@@ -1,0 +1,156 @@
+{
+  "summary": {
+    "r6": {
+      "pid1": "r6-init",
+      "boots": 5,
+      "greeter": {
+        "median": 5.08,
+        "stdev": 0.043817804600413325
+      },
+      "network": {
+        "median": 5.08,
+        "stdev": 0.046690470119714986
+      },
+      "mem_used_kib": {
+        "median": 355096.0,
+        "stdev": 6166.848400925711
+      },
+      "processes": {
+        "median": 24.0,
+        "stdev": 0.0
+      },
+      "pid1_rss_kib": {
+        "median": 2552.0,
+        "stdev": 55.281099844341014
+      },
+      "userspace_pss_kib": {
+        "median": 93521.0,
+        "stdev": 331.46839970048427
+      }
+    },
+    "systemd": {
+      "pid1": "systemd",
+      "boots": 5,
+      "greeter": {
+        "median": 6.41,
+        "stdev": 0.4535636669752108
+      },
+      "network": {
+        "median": 6.23,
+        "stdev": 0.4487204029236915
+      },
+      "mem_used_kib": {
+        "median": 379284.0,
+        "stdev": 7348.5940968324
+      },
+      "processes": {
+        "median": 19.0,
+        "stdev": 0.0
+      },
+      "pid1_rss_kib": {
+        "median": 15008.0,
+        "stdev": 141.89009831556254
+      },
+      "userspace_pss_kib": {
+        "median": 72970.0,
+        "stdev": 208.2781793659624
+      }
+    }
+  },
+  "runs": {
+    "r6": [
+      {
+        "greeter": "5.080",
+        "network": "5.080",
+        "pid1": "r6-init",
+        "mem_used_kib": "352032",
+        "processes": "24",
+        "pid1_rss_kib": "2532",
+        "userspace_pss_kib": "92954"
+      },
+      {
+        "greeter": "5.000",
+        "network": "4.990",
+        "pid1": "r6-init",
+        "mem_used_kib": "367688",
+        "processes": "24",
+        "pid1_rss_kib": "2552",
+        "userspace_pss_kib": "93521"
+      },
+      {
+        "greeter": "5.080",
+        "network": "5.080",
+        "pid1": "r6-init",
+        "mem_used_kib": "355096",
+        "processes": "24",
+        "pid1_rss_kib": "2544",
+        "userspace_pss_kib": "93000"
+      },
+      {
+        "greeter": "5.080",
+        "network": "5.080",
+        "pid1": "r6-init",
+        "mem_used_kib": "355188",
+        "processes": "24",
+        "pid1_rss_kib": "2608",
+        "userspace_pss_kib": "93599"
+      },
+      {
+        "greeter": "5.000",
+        "network": "5.000",
+        "pid1": "r6-init",
+        "mem_used_kib": "354480",
+        "processes": "24",
+        "pid1_rss_kib": "2664",
+        "userspace_pss_kib": "93614"
+      }
+    ],
+    "systemd": [
+      {
+        "greeter": "6.410",
+        "network": "6.230",
+        "pid1": "systemd",
+        "mem_used_kib": "380028",
+        "processes": "19",
+        "pid1_rss_kib": "15008",
+        "userspace_pss_kib": "72970"
+      },
+      {
+        "greeter": "6.330",
+        "network": "6.150",
+        "pid1": "systemd",
+        "mem_used_kib": "379284",
+        "processes": "19",
+        "pid1_rss_kib": "14796",
+        "userspace_pss_kib": "73167"
+      },
+      {
+        "greeter": "7.390",
+        "network": "7.200",
+        "pid1": "systemd",
+        "mem_used_kib": "365936",
+        "processes": "19",
+        "pid1_rss_kib": "15112",
+        "userspace_pss_kib": "72926"
+      },
+      {
+        "greeter": "6.350",
+        "network": "6.180",
+        "pid1": "systemd",
+        "mem_used_kib": "366592",
+        "processes": "19",
+        "pid1_rss_kib": "15064",
+        "userspace_pss_kib": "72610"
+      },
+      {
+        "greeter": "6.430",
+        "network": "6.240",
+        "pid1": "systemd",
+        "mem_used_kib": "379684",
+        "processes": "19",
+        "pid1_rss_kib": "14828",
+        "userspace_pss_kib": "73050"
+      }
+    ]
+  }
+}
