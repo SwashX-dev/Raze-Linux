@@ -17,4 +17,4 @@ performance over feature count.
    include before/after measurements (see `docs/performance/methodology.md`).
 5. Do not describe delegated or upstream functionality as native Raze work.
 
-See [docs/development](docs/development) for building and testing details.
+See [building.md](building.md) and [testing.md](testing.md) for building and testing details.
