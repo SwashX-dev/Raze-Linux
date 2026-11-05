@@ -8,10 +8,13 @@
 use std::io::Write;
 use std::os::unix::net::UnixDatagram;
 
-const SEVERITIES: [&str; 8] = ["emerg", "alert", "crit", "err", "warning", "notice", "info", "debug"];
+const SEVERITIES: [&str; 8] = [
+    "emerg", "alert", "crit", "err", "warning", "notice", "info", "debug",
+];
 const FACILITIES: [&str; 24] = [
-    "kern", "user", "mail", "daemon", "auth", "syslog", "lpr", "news", "uucp", "cron", "authpriv", "ftp", "ntp",
-    "audit", "alert", "clock", "local0", "local1", "local2", "local3", "local4", "local5", "local6", "local7",
+    "kern", "user", "mail", "daemon", "auth", "syslog", "lpr", "news", "uucp", "cron", "authpriv",
+    "ftp", "ntp", "audit", "alert", "clock", "local0", "local1", "local2", "local3", "local4",
+    "local5", "local6", "local7",
 ];
 
 /// Turn a raw syslog datagram ("<PRI>Mmm dd hh:mm:ss tag[pid]: msg") into
@@ -27,7 +30,11 @@ pub fn format(raw: &[u8]) -> String {
         None => (None, text),
     };
     // RFC 3164 timestamp: "Nov  5 13:25:22 " (16 bytes).
-    let rest = if rest.len() > 16 && rest.as_bytes()[3] == b' ' && rest.as_bytes()[6] == b' ' && rest.as_bytes()[9] == b':' {
+    let rest = if rest.len() > 16
+        && rest.as_bytes()[3] == b' '
+        && rest.as_bytes()[6] == b' '
+        && rest.as_bytes()[9] == b':'
+    {
         &rest[16..]
     } else {
         rest
@@ -85,7 +92,10 @@ mod tests {
             format(b"<29>Nov  5 13:25:22 ModemManager[577]: <msg> started\n"),
             "daemon.notice ModemManager[577]: <msg> started"
         );
-        assert_eq!(format(b"<86>sudo: raze : TTY=pts/0"), "authpriv.info sudo: raze : TTY=pts/0");
+        assert_eq!(
+            format(b"<86>sudo: raze : TTY=pts/0"),
+            "authpriv.info sudo: raze : TTY=pts/0"
+        );
         assert_eq!(format(b"no priority"), "no priority");
     }
 }

@@ -32,7 +32,7 @@ pub struct Config {
     pub xwayland: bool,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Input {
     pub keyboard: Keyboard,
@@ -117,12 +117,6 @@ impl Default for Config {
     }
 }
 
-impl Default for Input {
-    fn default() -> Self {
-        Input { keyboard: Keyboard::default(), touchpad: Touchpad::default(), focus_follows_mouse: false }
-    }
-}
-
 impl Default for Keyboard {
     fn default() -> Self {
         Keyboard {
@@ -139,7 +133,10 @@ impl Default for Keyboard {
 
 impl Default for Touchpad {
     fn default() -> Self {
-        Touchpad { tap: true, natural_scroll: true }
+        Touchpad {
+            tap: true,
+            natural_scroll: true,
+        }
     }
 }
 
@@ -160,13 +157,19 @@ impl Default for LayoutSection {
 
 impl Default for Animations {
     fn default() -> Self {
-        Animations { enabled: true, duration_ms: 180 }
+        Animations {
+            enabled: true,
+            duration_ms: 180,
+        }
     }
 }
 
 impl Default for Cursor {
     fn default() -> Self {
-        Cursor { theme: "Adwaita".into(), size: 24 }
+        Cursor {
+            theme: "Adwaita".into(),
+            size: 24,
+        }
     }
 }
 
@@ -177,17 +180,23 @@ impl Config {
             .or_else(|_| std::env::var("HOME").map(|h| PathBuf::from(h).join(".config")))
             .ok()
             .map(|d| d.join("rift/config.toml"));
-        user.into_iter().chain([PathBuf::from("/etc/rift/config.toml")]).find(|p| p.exists())
+        user.into_iter()
+            .chain([PathBuf::from("/etc/rift/config.toml")])
+            .find(|p| p.exists())
     }
 
     pub fn parse(text: &str) -> Result<Config, String> {
-        let mut table: toml::Table = DEFAULT_CONFIG.parse().map_err(|e: toml::de::Error| e.to_string())?;
+        let mut table: toml::Table = DEFAULT_CONFIG
+            .parse()
+            .map_err(|e: toml::de::Error| e.to_string())?;
         let user: toml::Table = text.parse().map_err(|e: toml::de::Error| e.to_string())?;
         merge(&mut table, user);
         if let Some(toml::Value::Table(binds)) = table.get_mut("binds") {
             binds.retain(|_, v| v.as_str() != Some("none"));
         }
-        let cfg: Config = toml::Value::Table(table).try_into().map_err(|e: toml::de::Error| e.to_string())?;
+        let cfg: Config = toml::Value::Table(table)
+            .try_into()
+            .map_err(|e: toml::de::Error| e.to_string())?;
         cfg.validate()?;
         Ok(cfg)
     }
@@ -195,8 +204,13 @@ impl Config {
     /// Load the configuration; an invalid file is reported and the defaults are used
     /// so that a typo never leaves the user without a desktop.
     pub fn load() -> (Config, Option<String>) {
-        let Some(path) = Self::path() else { return (Config::default(), None) };
-        match std::fs::read_to_string(&path).map_err(|e| e.to_string()).and_then(|t| Self::parse(&t)) {
+        let Some(path) = Self::path() else {
+            return (Config::default(), None);
+        };
+        match std::fs::read_to_string(&path)
+            .map_err(|e| e.to_string())
+            .and_then(|t| Self::parse(&t))
+        {
             Ok(c) => (c, None),
             Err(e) => (Config::default(), Some(format!("{}: {e}", path.display()))),
         }
@@ -207,7 +221,11 @@ impl Config {
             parse_combo(combo)?;
             Action::parse(action).map_err(|e| format!("bind {combo:?}: {e}"))?;
         }
-        for c in [&self.layout.active_color, &self.layout.inactive_color, &self.layout.background] {
+        for c in [
+            &self.layout.active_color,
+            &self.layout.inactive_color,
+            &self.layout.background,
+        ] {
             parse_color(c).ok_or_else(|| format!("invalid color {c:?}"))?;
         }
         if !(0.05..=1.0).contains(&self.layout.default_width) {
@@ -234,7 +252,11 @@ impl Config {
                 Some(p) if p.ends_with('*') => app_id.starts_with(&p[..p.len() - 1]),
                 Some(p) => p == app_id,
             };
-            let title_ok = r.title.as_ref().map(|t| title.contains(t.as_str())).unwrap_or(true);
+            let title_ok = r
+                .title
+                .as_ref()
+                .map(|t| title.contains(t.as_str()))
+                .unwrap_or(true);
             if app_ok && title_ok {
                 rule.width = r.width.or(rule.width);
                 rule.workspace = r.workspace.map(|w| w.saturating_sub(1)).or(rule.workspace);
@@ -261,7 +283,11 @@ fn merge(base: &mut toml::Table, over: toml::Table) {
 /// `#rrggbb` or `#rrggbbaa` to linear-ish RGBA floats (sRGB values, as the renderer expects).
 pub fn parse_color(s: &str) -> Option<[f32; 4]> {
     let h = s.strip_prefix('#')?;
-    let v = |i: usize| u8::from_str_radix(h.get(i..i + 2)?, 16).ok().map(|b| b as f32 / 255.0);
+    let v = |i: usize| {
+        u8::from_str_radix(h.get(i..i + 2)?, 16)
+            .ok()
+            .map(|b| b as f32 / 255.0)
+    };
     match h.len() {
         6 => Some([v(0)?, v(2)?, v(4)?, 1.0]),
         8 => Some([v(0)?, v(2)?, v(4)?, v(6)?]),
@@ -309,7 +335,10 @@ pub fn parse_combo(s: &str) -> Result<Combo, String> {
     if key.is_empty() {
         return Err(format!("missing key in {s:?}"));
     }
-    Ok(Combo { mods, key: key.to_ascii_lowercase() })
+    Ok(Combo {
+        mods,
+        key: key.to_ascii_lowercase(),
+    })
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -355,7 +384,10 @@ impl Action {
             Some((n, a)) => (n, a.trim()),
             None => (s, ""),
         };
-        let num = |a: &str| a.parse::<usize>().map_err(|_| format!("{name}: expected a number, got {a:?}"));
+        let num = |a: &str| {
+            a.parse::<usize>()
+                .map_err(|_| format!("{name}: expected a number, got {a:?}"))
+        };
         Ok(match name {
             "spawn" if !arg.is_empty() => Action::Spawn(arg.to_string()),
             "spawn" => return Err("spawn needs a command".into()),
@@ -375,7 +407,10 @@ impl Action {
             "expel" | "expel-window-from-column" => Action::Expel,
             "switch-width" | "switch-preset-column-width" => Action::SwitchWidth,
             "width" | "set-column-width" => {
-                let v: f64 = arg.trim_end_matches('%').parse().map_err(|_| format!("width: invalid amount {arg:?}"))?;
+                let v: f64 = arg
+                    .trim_end_matches('%')
+                    .parse()
+                    .map_err(|_| format!("width: invalid amount {arg:?}"))?;
                 Action::AdjustWidth(v / 100.0)
             }
             "maximize" | "maximize-column" => Action::Maximize,
@@ -384,7 +419,9 @@ impl Action {
             "workspace" | "focus-workspace" => Action::Workspace(num(arg)?.max(1) - 1),
             "workspace-up" | "focus-workspace-up" => Action::WorkspaceUp,
             "workspace-down" | "focus-workspace-down" => Action::WorkspaceDown,
-            "move-to-workspace" | "move-column-to-workspace" => Action::MoveToWorkspace(num(arg)?.max(1) - 1),
+            "move-to-workspace" | "move-column-to-workspace" => {
+                Action::MoveToWorkspace(num(arg)?.max(1) - 1)
+            }
             "move-to-workspace-up" => Action::MoveToWorkspaceUp,
             "move-to-workspace-down" => Action::MoveToWorkspaceDown,
             "focus-monitor-next" => Action::FocusMonitorNext,
@@ -418,7 +455,8 @@ mod tests {
         assert!(Config::parse("[binds]\n\"Hyper+Q\" = \"close\"").is_err());
         assert!(Config::parse("[outputs.HDMI-A-1]\nscale = 20.0").is_err());
         assert!(Config::parse("[outputs.HDMI-A-1]\nmode = \"big\"").is_err());
-        let c = Config::parse("[outputs.\"eDP-1\"]\nscale = 1.25\nmode = \"2560x1600@120\"").unwrap();
+        let c =
+            Config::parse("[outputs.\"eDP-1\"]\nscale = 1.25\nmode = \"2560x1600@120\"").unwrap();
         assert_eq!(c.outputs["eDP-1"].scale, Some(1.25));
     }
 
@@ -427,12 +465,24 @@ mod tests {
         let c = parse_combo("Super+Shift+Return").unwrap();
         assert!(c.mods.logo && c.mods.shift && !c.mods.ctrl);
         assert_eq!(c.key, "return");
-        assert_eq!(Action::parse("spawn foot -e htop").unwrap(), Action::Spawn("foot -e htop".into()));
+        assert_eq!(
+            Action::parse("spawn foot -e htop").unwrap(),
+            Action::Spawn("foot -e htop".into())
+        );
         assert_eq!(Action::parse("workspace 3").unwrap(), Action::Workspace(2));
-        assert_eq!(Action::parse("width -10%").unwrap(), Action::AdjustWidth(-0.1));
+        assert_eq!(
+            Action::parse("width -10%").unwrap(),
+            Action::AdjustWidth(-0.1)
+        );
         assert!(Action::parse("workspace x").is_err());
-        assert_eq!(parse_color("#ff000080"), Some([1.0, 0.0, 0.0, 128.0 / 255.0]));
-        assert_eq!(parse_mode("1920x1080@59.94"), Some((1920, 1080, Some(59940))));
+        assert_eq!(
+            parse_color("#ff000080"),
+            Some([1.0, 0.0, 0.0, 128.0 / 255.0])
+        );
+        assert_eq!(
+            parse_mode("1920x1080@59.94"),
+            Some((1920, 1080, Some(59940)))
+        );
     }
 
     #[test]

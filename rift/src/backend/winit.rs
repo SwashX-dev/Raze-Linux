@@ -3,7 +3,7 @@
 use smithay::backend::allocator::dmabuf::Dmabuf;
 use smithay::backend::renderer::damage::OutputDamageTracker;
 use smithay::backend::renderer::gles::GlesRenderer;
-use smithay::backend::renderer::{ImportMemWl, ImportDma, ImportMem};
+use smithay::backend::renderer::{ImportDma, ImportMemWl};
 use smithay::backend::winit::{self, WinitEvent, WinitGraphicsBackend};
 use smithay::output::{Mode, Output, PhysicalProperties, Subpixel};
 use smithay::reexports::calloop::EventLoop;
@@ -26,7 +26,10 @@ impl Winit {
             .insert_source(winit, |event, _, state| match event {
                 WinitEvent::Resized { size, .. } => {
                     if let Some(output) = state.outputs.first().map(|o| o.output.clone()) {
-                        let mode = Mode { size, refresh: 60_000 };
+                        let mode = Mode {
+                            size,
+                            refresh: 60_000,
+                        };
                         output.change_current_state(Some(mode), None, None, None);
                         output.set_preferred(mode);
                         if let Backend::Winit(w) = &mut state.backend {
@@ -41,7 +44,11 @@ impl Winit {
                 WinitEvent::Focus(_) => {}
             })
             .map_err(|e| format!("winit event source: {e}"))?;
-        Ok(Winit { backend, damage_tracker: None, output: None })
+        Ok(Winit {
+            backend,
+            damage_tracker: None,
+            output: None,
+        })
     }
 
     pub fn import_dmabuf(&mut self, dmabuf: &Dmabuf) -> bool {
@@ -49,13 +56,22 @@ impl Winit {
     }
 
     pub fn render(&mut self, state: &mut Rift, output: &Output) {
-        let age = if self.damage_tracker.is_none() { 0 } else { self.backend.buffer_age().unwrap_or(0) };
-        let tracker = self.damage_tracker.get_or_insert_with(|| OutputDamageTracker::from_output(output));
+        let age = if self.damage_tracker.is_none() {
+            0
+        } else {
+            self.backend.buffer_age().unwrap_or(0)
+        };
+        let tracker = self
+            .damage_tracker
+            .get_or_insert_with(|| OutputDamageTracker::from_output(output));
         let clear = crate::render::background_color(state);
         let result = match self.backend.bind() {
             Ok((renderer, mut fb)) => {
                 let elements = crate::render::output_elements(state, renderer, output, true);
-                tracker.render_output(renderer, &mut fb, age, &elements, clear).map(|r| r.damage.cloned()).map_err(|e| format!("{e:?}"))
+                tracker
+                    .render_output(renderer, &mut fb, age, &elements, clear)
+                    .map(|r| r.damage.cloned())
+                    .map_err(|e| format!("{e:?}"))
             }
             Err(e) => Err(format!("{e:?}")),
         };
@@ -80,11 +96,16 @@ impl Winit {
 }
 
 pub fn init(state: &mut Rift) {
-    let Backend::Winit(w) = &mut state.backend else { return };
+    let Backend::Winit(w) = &mut state.backend else {
+        return;
+    };
     let size = w.backend.window_size();
     let formats: Vec<_> = w.backend.renderer().shm_formats().collect();
     let dmabuf_formats = w.backend.renderer().dmabuf_formats();
-    let mode = Mode { size, refresh: 60_000 };
+    let mode = Mode {
+        size,
+        refresh: 60_000,
+    };
     let output = Output::new(
         "WINIT-1".to_string(),
         PhysicalProperties {
@@ -100,6 +121,8 @@ pub fn init(state: &mut Rift) {
     output.set_preferred(mode);
     w.output = Some(output.clone());
     state.shm_state.update_formats(formats);
-    state.dmabuf_state.create_global::<Rift>(&state.display_handle, dmabuf_formats);
+    state
+        .dmabuf_state
+        .create_global::<Rift>(&state.display_handle, dmabuf_formats);
     state.add_output(output);
 }

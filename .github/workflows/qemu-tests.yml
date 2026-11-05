@@ -20,8 +20,10 @@ jobs:
             system-features = nixos-test benchmark big-parallel kvm
       - name: Raze Core boots with r6 as PID 1
         run: nix build -L .#checks.x86_64-linux.core-boot
-      - name: Raze Desktop integration test
+      - name: Raze Desktop (r6 + Rift) integration test
         run: nix build -L .#checks.x86_64-linux.desktop
+      - name: Raze Desktop with the systemd fallback
+        run: nix build -L .#checks.x86_64-linux.desktop-systemd
       - uses: actions/upload-artifact@v4
         if: always()
         with:

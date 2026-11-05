@@ -192,6 +192,13 @@ fn notify_readiness_gates_dependents() {
     assert_eq!(e.state("db"), "starting");
     assert_eq!(e.state("app"), "down");
     e.wait_state("app", "up", 5);
+    // `app` is up (immediate readiness) as soon as it is spawned; give its shell time
+    // to write.
+    assert!(wait_until(Duration::from_secs(2), || e
+        .read_out("order")
+        .lines()
+        .count()
+        == 2));
     assert_eq!(e.read_out("order"), "ready-db\napp\n");
 }
 
@@ -669,7 +676,11 @@ fn user_supervisor_uses_session_locations() {
     let ok = wait_until(Duration::from_secs(2), || {
         std::fs::read_to_string(&out).unwrap_or_default().trim() == runtime.display().to_string()
     });
-    assert!(ok, "service saw XDG_RUNTIME_DIR={:?}", std::fs::read_to_string(&out));
+    assert!(
+        ok,
+        "service saw XDG_RUNTIME_DIR={:?}",
+        std::fs::read_to_string(&out)
+    );
     let mut st = Command::new(env!("CARGO_BIN_EXE_r6"));
     env(&mut st);
     let o = st

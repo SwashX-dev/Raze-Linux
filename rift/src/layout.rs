@@ -25,9 +25,6 @@ impl Rect {
     pub fn intersects(&self, o: &Rect) -> bool {
         self.x < o.x + o.w && o.x < self.x + self.w && self.y < o.y + o.h && o.y < self.y + self.h
     }
-    pub fn contains(&self, x: f64, y: f64) -> bool {
-        x >= self.x as f64 && y >= self.y as f64 && x < (self.x + self.w) as f64 && y < (self.y + self.h) as f64
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -86,7 +83,8 @@ struct Anim {
 
 impl Anim {
     fn value(&self, now: Instant) -> f64 {
-        let t = now.saturating_duration_since(self.start).as_secs_f64() / self.dur.as_secs_f64().max(1e-6);
+        let t = now.saturating_duration_since(self.start).as_secs_f64()
+            / self.dur.as_secs_f64().max(1e-6);
         if t >= 1.0 {
             return self.to;
         }
@@ -110,7 +108,13 @@ pub struct Workspace<W> {
 
 impl<W> Workspace<W> {
     fn new(id: u64) -> Self {
-        Workspace { id, columns: Vec::new(), focused: 0, view: 0.0, anim: None }
+        Workspace {
+            id,
+            columns: Vec::new(),
+            focused: 0,
+            view: 0.0,
+            anim: None,
+        }
     }
     pub fn is_empty(&self) -> bool {
         self.columns.is_empty()
@@ -168,7 +172,13 @@ pub struct Layout<W> {
 
 impl<W: Clone + PartialEq> Layout<W> {
     pub fn new(config: LayoutConfig) -> Self {
-        Layout { monitors: Vec::new(), active_monitor: 0, config, next_id: 1, detached: Vec::new() }
+        Layout {
+            monitors: Vec::new(),
+            active_monitor: 0,
+            config,
+            next_id: 1,
+            detached: Vec::new(),
+        }
     }
 
     fn new_ws(&mut self) -> Workspace<W> {
@@ -201,7 +211,9 @@ impl<W: Clone + PartialEq> Layout<W> {
     /// Remove a monitor; its windows move to another monitor (or are kept until one
     /// appears).
     pub fn remove_monitor(&mut self, name: &str) {
-        let Some(i) = self.monitors.iter().position(|m| m.name == name) else { return };
+        let Some(i) = self.monitors.iter().position(|m| m.name == name) else {
+            return;
+        };
         let m = self.monitors.remove(i);
         let moved: Vec<Workspace<W>> = m.workspaces.into_iter().filter(|w| !w.is_empty()).collect();
         if self.monitors.is_empty() {
@@ -255,7 +267,11 @@ impl<W: Clone + PartialEq> Layout<W> {
     /// Keep exactly one empty workspace at the end; drop other empty workspaces that
     /// are not active.
     fn normalize(&mut self, mi: usize) {
-        let needs_tail = self.monitors[mi].workspaces.last().map(|w| !w.is_empty()).unwrap_or(true);
+        let needs_tail = self.monitors[mi]
+            .workspaces
+            .last()
+            .map(|w| !w.is_empty())
+            .unwrap_or(true);
         if needs_tail {
             let ws = self.new_ws();
             self.monitors[mi].workspaces.push(ws);
@@ -285,7 +301,11 @@ impl<W: Clone + PartialEq> Layout<W> {
         {
             m.workspaces.pop();
         }
-        m.active = m.workspaces.iter().position(|w| w.id == active_id).unwrap_or(0);
+        m.active = m
+            .workspaces
+            .iter()
+            .position(|w| w.id == active_id)
+            .unwrap_or(0);
     }
 
     // ------------------------------------------------------------------ windows
@@ -330,7 +350,13 @@ impl<W: Clone + PartialEq> Layout<W> {
                 Some(ws) => ws,
                 None => self.new_ws(),
             };
-            ws.columns.push(Column { windows: vec![w], focused: 0, width: self.config.default_width, maximized: false, fullscreen: false });
+            ws.columns.push(Column {
+                windows: vec![w],
+                focused: 0,
+                width: self.config.default_width,
+                maximized: false,
+                fullscreen: false,
+            });
             self.detached.push(ws);
             return;
         }
@@ -345,12 +371,25 @@ impl<W: Clone + PartialEq> Layout<W> {
             }
             None => self.monitors[mi].active,
         };
-        let width = rule.width.unwrap_or(self.config.default_width).clamp(0.05, 1.0);
+        let width = rule
+            .width
+            .unwrap_or(self.config.default_width)
+            .clamp(0.05, 1.0);
         let ws = &mut self.monitors[mi].workspaces[wi];
-        let at = if ws.columns.is_empty() { 0 } else { ws.focused + 1 };
+        let at = if ws.columns.is_empty() {
+            0
+        } else {
+            ws.focused + 1
+        };
         ws.columns.insert(
             at,
-            Column { windows: vec![w], focused: 0, width, maximized: rule.maximized, fullscreen: rule.fullscreen },
+            Column {
+                windows: vec![w],
+                focused: 0,
+                width,
+                maximized: rule.maximized,
+                fullscreen: rule.fullscreen,
+            },
         );
         ws.focused = at;
         if rule.workspace.is_none() || rule.workspace == Some(self.monitors[mi].active) {
@@ -367,7 +406,9 @@ impl<W: Clone + PartialEq> Layout<W> {
             ws.columns.retain(|c| !c.windows.is_empty());
         }
         self.detached.retain(|ws| !ws.is_empty());
-        let Some((mi, wi, ci, k)) = self.find(w) else { return false };
+        let Some((mi, wi, ci, k)) = self.find(w) else {
+            return false;
+        };
         let ws = &mut self.monitors[mi].workspaces[wi];
         let col = &mut ws.columns[ci];
         col.windows.remove(k);
@@ -413,7 +454,13 @@ impl<W: Clone + PartialEq> Layout<W> {
     pub fn initial_size(&self) -> Option<(i32, i32)> {
         let m = self.monitors.get(self.active_monitor)?;
         let g = self.config.gap;
-        let c: Column<W> = Column { windows: vec![], focused: 0, width: self.config.default_width, maximized: false, fullscreen: false };
+        let c: Column<W> = Column {
+            windows: vec![],
+            focused: 0,
+            width: self.config.default_width,
+            maximized: false,
+            fullscreen: false,
+        };
         Some((self.column_width(&m.area, &c), (m.area.h - 2 * g).max(1)))
     }
 
@@ -449,7 +496,11 @@ impl<W: Clone + PartialEq> Layout<W> {
         let current = ws.view_at(now);
         let mut target = ws.view;
         if center || w >= viewport {
-            target = if w >= viewport { x } else { x + w / 2.0 - viewport / 2.0 };
+            target = if w >= viewport {
+                x
+            } else {
+                x + w / 2.0 - viewport / 2.0
+            };
         } else if x < target {
             target = x;
         } else if x + w > target + viewport {
@@ -462,7 +513,12 @@ impl<W: Clone + PartialEq> Layout<W> {
         }
         ws.view = target;
         ws.anim = if animate && anim_ms > 0 && (current - target).abs() >= 1.0 {
-            Some(Anim { from: current, to: target, start: now, dur: Duration::from_millis(anim_ms as u64) })
+            Some(Anim {
+                from: current,
+                to: target,
+                start: now,
+                dur: Duration::from_millis(anim_ms as u64),
+            })
         } else {
             None
         };
@@ -493,7 +549,11 @@ impl<W: Clone + PartialEq> Layout<W> {
                 let active = wi == m.active;
                 let spans = self.column_spans(&area, ws);
                 let view = ws.view_at(now);
-                let fullscreen_col = ws.columns.get(ws.focused).filter(|c| c.fullscreen).map(|_| ws.focused);
+                let fullscreen_col = ws
+                    .columns
+                    .get(ws.focused)
+                    .filter(|c| c.fullscreen)
+                    .map(|_| ws.focused);
                 for (ci, c) in ws.columns.iter().enumerate() {
                     let (sx, cw) = spans[ci];
                     let n = c.windows.len() as i32;
@@ -506,7 +566,11 @@ impl<W: Clone + PartialEq> Layout<W> {
                             Rect::new(0, 0, m.size.0, m.size.1)
                         } else {
                             let y = area.y + g + k as i32 * (each + g);
-                            let h = if k as i32 == n - 1 { area.y + area.h - g - y } else { each };
+                            let h = if k as i32 == n - 1 {
+                                area.y + area.h - g - y
+                            } else {
+                                each
+                            };
                             Rect::new(x, y, cw, h.max(1))
                         };
                         let on_screen = rect.intersects(&Rect::new(0, 0, m.size.0, m.size.1));
@@ -660,14 +724,25 @@ impl<W: Clone + PartialEq> Layout<W> {
         let default_width = self.config.default_width;
         self.with_active(|ws| {
             let i = ws.focused;
-            let Some(c) = ws.columns.get_mut(i) else { return };
+            let Some(c) = ws.columns.get_mut(i) else {
+                return;
+            };
             if c.windows.len() < 2 {
                 return;
             }
             let w = c.windows.remove(c.focused);
             c.focused = c.focused.min(c.windows.len() - 1);
             let width = c.width.max(default_width.min(c.width));
-            ws.columns.insert(i + 1, Column { windows: vec![w], focused: 0, width, maximized: false, fullscreen: false });
+            ws.columns.insert(
+                i + 1,
+                Column {
+                    windows: vec![w],
+                    focused: 0,
+                    width,
+                    maximized: false,
+                    fullscreen: false,
+                },
+            );
             ws.focused = i + 1;
         });
     }
@@ -725,11 +800,15 @@ impl<W: Clone + PartialEq> Layout<W> {
     }
 
     pub fn is_fullscreen(&self, w: &W) -> bool {
-        self.find(w).map(|(mi, wi, ci, _)| self.monitors[mi].workspaces[wi].columns[ci].fullscreen).unwrap_or(false)
+        self.find(w)
+            .map(|(mi, wi, ci, _)| self.monitors[mi].workspaces[wi].columns[ci].fullscreen)
+            .unwrap_or(false)
     }
 
     pub fn center_column(&mut self) {
-        let Some((mi, wi)) = self.active_ws_idx() else { return };
+        let Some((mi, wi)) = self.active_ws_idx() else {
+            return;
+        };
         let center = self.config.center_focused;
         self.config.center_focused = true;
         self.scroll_to_focus(mi, wi, Instant::now(), true);
@@ -737,7 +816,13 @@ impl<W: Clone + PartialEq> Layout<W> {
     }
 
     pub fn focus_workspace(&mut self, n: usize) {
-        let Some(mi) = self.monitors.get(self.active_monitor).map(|_| self.active_monitor) else { return };
+        let Some(mi) = self
+            .monitors
+            .get(self.active_monitor)
+            .map(|_| self.active_monitor)
+        else {
+            return;
+        };
         let len = self.monitors[mi].workspaces.len();
         self.monitors[mi].active = n.min(len - 1);
         self.normalize(mi);
@@ -759,7 +844,9 @@ impl<W: Clone + PartialEq> Layout<W> {
 
     /// Move the focused column to workspace `n` of the active monitor.
     pub fn move_column_to_workspace(&mut self, n: usize) {
-        let Some((mi, wi)) = self.active_ws_idx() else { return };
+        let Some((mi, wi)) = self.active_ws_idx() else {
+            return;
+        };
         if n == wi {
             return;
         }
@@ -774,7 +861,11 @@ impl<W: Clone + PartialEq> Layout<W> {
             self.monitors[mi].workspaces.push(w);
         }
         let target = &mut self.monitors[mi].workspaces[n];
-        let at = if target.columns.is_empty() { 0 } else { target.focused + 1 };
+        let at = if target.columns.is_empty() {
+            0
+        } else {
+            target.focused + 1
+        };
         target.columns.insert(at, col);
         target.focused = at;
         self.scroll_to_focus(mi, wi, Instant::now(), true);
@@ -808,7 +899,9 @@ impl<W: Clone + PartialEq> Layout<W> {
         if self.monitors.len() < 2 {
             return;
         }
-        let Some((mi, wi)) = self.active_ws_idx() else { return };
+        let Some((mi, wi)) = self.active_ws_idx() else {
+            return;
+        };
         let ws = &mut self.monitors[mi].workspaces[wi];
         if ws.columns.is_empty() {
             return;
@@ -820,7 +913,11 @@ impl<W: Clone + PartialEq> Layout<W> {
         let t = (mi + 1) % self.monitors.len();
         let ti = self.monitors[t].active;
         let target = &mut self.monitors[t].workspaces[ti];
-        let at = if target.columns.is_empty() { 0 } else { target.focused + 1 };
+        let at = if target.columns.is_empty() {
+            0
+        } else {
+            target.focused + 1
+        };
         target.columns.insert(at, col);
         target.focused = at;
         self.active_monitor = t;
@@ -834,13 +931,20 @@ mod tests {
     use super::*;
 
     fn layout() -> Layout<u32> {
-        let mut l = Layout::new(LayoutConfig { animation_ms: 0, ..Default::default() });
+        let mut l = Layout::new(LayoutConfig {
+            animation_ms: 0,
+            ..Default::default()
+        });
         l.add_monitor("A", (1000, 600));
         l
     }
 
     fn visible(l: &mut Layout<u32>) -> Vec<(u32, Rect)> {
-        l.arrange(Instant::now()).into_iter().filter(|p| p.visible).map(|p| (p.window, p.rect)).collect()
+        l.arrange(Instant::now())
+            .into_iter()
+            .filter(|p| p.visible)
+            .map(|p| (p.window, p.rect))
+            .collect()
     }
 
     #[test]
@@ -850,7 +954,13 @@ mod tests {
         l.add_window(2, &OpenRule::default());
         let v = visible(&mut l);
         // Two half-width columns fill the screen exactly: (1000-10)*0.5-10 = 485.
-        assert_eq!(v, vec![(1, Rect::new(10, 10, 485, 580)), (2, Rect::new(505, 10, 485, 580))]);
+        assert_eq!(
+            v,
+            vec![
+                (1, Rect::new(10, 10, 485, 580)),
+                (2, Rect::new(505, 10, 485, 580))
+            ]
+        );
         assert_eq!(l.focused_window(), Some(&2));
         // A third window scrolls the view; window 1 goes off-screen, sizes stay.
         l.add_window(3, &OpenRule::default());
@@ -900,7 +1010,10 @@ mod tests {
         let mut l = layout();
         l.add_window(1, &OpenRule::default());
         l.switch_preset_width();
-        assert_eq!(visible(&mut l)[0].1.w, ((990.0 * (2.0 / 3.0)) as f64).round() as i32 - 10);
+        assert_eq!(
+            visible(&mut l)[0].1.w,
+            (990.0f64 * (2.0 / 3.0)).round() as i32 - 10
+        );
         l.switch_preset_width();
         assert_eq!(visible(&mut l)[0].1.w, (990.0f64 / 3.0).round() as i32 - 10);
         l.toggle_maximize();
@@ -916,23 +1029,40 @@ mod tests {
         let mut l = layout();
         assert_eq!(l.workspaces().len(), 1);
         l.add_window(1, &OpenRule::default());
-        assert_eq!(l.workspaces().len(), 2, "an empty workspace follows the last used one");
+        assert_eq!(
+            l.workspaces().len(),
+            2,
+            "an empty workspace follows the last used one"
+        );
         l.move_column_to_workspace_down();
         let ws = l.workspaces();
         // You stay on the (now empty) workspace until you leave it.
-        assert_eq!(ws.iter().map(|w| w.windows).collect::<Vec<_>>(), vec![0, 1, 0]);
+        assert_eq!(
+            ws.iter().map(|w| w.windows).collect::<Vec<_>>(),
+            vec![0, 1, 0]
+        );
         assert!(ws[0].active);
         l.focus_workspace_down();
         let ws = l.workspaces();
-        assert_eq!(ws.iter().map(|w| w.windows).collect::<Vec<_>>(), vec![1, 0], "the empty workspace is dropped once left");
+        assert_eq!(
+            ws.iter().map(|w| w.windows).collect::<Vec<_>>(),
+            vec![1, 0],
+            "the empty workspace is dropped once left"
+        );
         assert!(ws[0].active);
         l.add_window(2, &OpenRule::default());
         l.focus_workspace_down();
         assert_eq!(l.focused_window(), None);
         l.add_window(3, &OpenRule::default());
-        assert_eq!(l.workspaces().iter().map(|w| w.windows).collect::<Vec<_>>(), vec![2, 1, 0]);
+        assert_eq!(
+            l.workspaces().iter().map(|w| w.windows).collect::<Vec<_>>(),
+            vec![2, 1, 0]
+        );
         l.remove_window(&3);
-        assert_eq!(l.workspaces().iter().map(|w| w.windows).collect::<Vec<_>>(), vec![2, 0]);
+        assert_eq!(
+            l.workspaces().iter().map(|w| w.windows).collect::<Vec<_>>(),
+            vec![2, 0]
+        );
         // Hidden workspaces' windows are not visible.
         l.focus_workspace(0);
         assert_eq!(visible(&mut l).len(), 2);
@@ -941,9 +1071,21 @@ mod tests {
     #[test]
     fn rules_place_windows() {
         let mut l = layout();
-        l.add_window(1, &OpenRule { width: Some(1.0), ..Default::default() });
+        l.add_window(
+            1,
+            &OpenRule {
+                width: Some(1.0),
+                ..Default::default()
+            },
+        );
         assert_eq!(visible(&mut l)[0].1.w, 980);
-        l.add_window(2, &OpenRule { workspace: Some(1), ..Default::default() });
+        l.add_window(
+            2,
+            &OpenRule {
+                workspace: Some(1),
+                ..Default::default()
+            },
+        );
         assert_eq!(l.workspaces()[1].windows, 1);
         assert_eq!(l.focused_window(), Some(&1));
     }
@@ -968,7 +1110,11 @@ mod tests {
         assert!(l.find(&2).is_some());
         assert_eq!(l.windows().count(), 2);
         l.remove_monitor("A");
-        assert_eq!(l.windows().count(), 2, "windows survive with no monitor connected");
+        assert_eq!(
+            l.windows().count(),
+            2,
+            "windows survive with no monitor connected"
+        );
         l.add_monitor("C", (1000, 600));
         assert_eq!(l.windows().count(), 2);
         assert!(!visible(&mut l).is_empty());
@@ -976,7 +1122,10 @@ mod tests {
 
     #[test]
     fn animation_interpolates_and_finishes() {
-        let mut l = Layout::new(LayoutConfig { animation_ms: 100, ..Default::default() });
+        let mut l = Layout::new(LayoutConfig {
+            animation_ms: 100,
+            ..Default::default()
+        });
         l.add_monitor("A", (1000, 600));
         for w in 1..=3 {
             l.add_window(w, &OpenRule::default());

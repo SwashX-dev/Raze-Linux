@@ -16,9 +16,9 @@ use crate::state::Rift;
 pub enum Backend {
     /// Placeholder while a backend is temporarily taken out of the state for rendering.
     Empty,
-    Headless(headless::Headless),
-    Winit(winit::Winit),
-    Udev(udev::Udev),
+    Headless(Box<headless::Headless>),
+    Winit(Box<winit::Winit>),
+    Udev(Box<udev::Udev>),
 }
 
 impl Backend {
@@ -103,7 +103,11 @@ pub fn post_render(state: &mut Rift, output: &Output, presented: bool) {
 
 /// When nothing was drawn there is no vblank to wait for; pace frame callbacks with a timer.
 pub fn throttle_idle(state: &mut Rift, output: &Output) {
-    let refresh = output.current_mode().map(|m| m.refresh).filter(|r| *r > 0).unwrap_or(60_000);
+    let refresh = output
+        .current_mode()
+        .map(|m| m.refresh)
+        .filter(|r| *r > 0)
+        .unwrap_or(60_000);
     let frame = Duration::from_micros(1_000_000_000 / refresh as u64);
     if let Some(o) = state.outputs.iter_mut().find(|o| &o.output == output) {
         o.pending = true;

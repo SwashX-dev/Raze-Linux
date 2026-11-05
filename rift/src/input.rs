@@ -1,8 +1,8 @@
 //! Input: key bindings, pointer movement across outputs, focus, actions.
 
 use smithay::backend::input::{
-    AbsolutePositionEvent, Axis, AxisSource, ButtonState, Event, InputBackend, InputEvent, KeyState,
-    KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent, PointerMotionEvent,
+    AbsolutePositionEvent, Axis, AxisSource, ButtonState, Event, InputBackend, InputEvent,
+    KeyState, KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent, PointerMotionEvent,
 };
 use smithay::input::keyboard::{xkb, FilterResult, Keycode, ModifiersState};
 use smithay::input::pointer::{AxisFrame, ButtonEvent, MotionEvent, RelativeMotionEvent};
@@ -24,7 +24,12 @@ pub fn bindings(config: &crate::config::Config) -> Vec<Binding> {
     config
         .binds
         .iter()
-        .filter_map(|(k, v)| Some(Binding { combo: parse_combo(k).ok()?, action: Action::parse(v).ok()? }))
+        .filter_map(|(k, v)| {
+            Some(Binding {
+                combo: parse_combo(k).ok()?,
+                action: Action::parse(v).ok()?,
+            })
+        })
         .collect()
 }
 
@@ -37,11 +42,15 @@ fn matches(combo: &Combo, mods: &ModifiersState, sym: xkb::Keysym) -> bool {
 }
 
 /// Apply touchpad settings to a libinput device.
-pub fn configure_device(config: &crate::config::Config, device: &mut smithay::reexports::input::Device) {
+pub fn configure_device(
+    config: &crate::config::Config,
+    device: &mut smithay::reexports::input::Device,
+) {
     if device.config_tap_finger_count() > 0 {
         let _ = device.config_tap_set_enabled(config.input.touchpad.tap);
         if device.config_scroll_has_natural_scroll() {
-            let _ = device.config_scroll_set_natural_scroll_enabled(config.input.touchpad.natural_scroll);
+            let _ = device
+                .config_scroll_set_natural_scroll_enabled(config.input.touchpad.natural_scroll);
         }
         let _ = device.config_dwt_set_enabled(true);
     }
@@ -50,7 +59,12 @@ pub fn configure_device(config: &crate::config::Config, device: &mut smithay::re
 impl Rift {
     pub fn process_input_event<B: InputBackend>(&mut self, event: InputEvent<B>) {
         self.idle_notifier_state.notify_activity(&self.seat);
-        if self.outputs.iter().any(|o| !o.powered) && !matches!(event, InputEvent::DeviceAdded { .. } | InputEvent::DeviceRemoved { .. }) {
+        if self.outputs.iter().any(|o| !o.powered)
+            && !matches!(
+                event,
+                InputEvent::DeviceAdded { .. } | InputEvent::DeviceRemoved { .. }
+            )
+        {
             self.set_monitors_power(true);
         }
         match event {
@@ -82,14 +96,22 @@ impl Rift {
             };
             // VT switching keysyms (XF86Switch_VT_n) come from Ctrl+Alt+Fn in the keymap.
             let raw = sym.raw();
-            if (xkb::keysyms::KEY_XF86Switch_VT_1..=xkb::keysyms::KEY_XF86Switch_VT_12).contains(&raw) {
+            if (xkb::keysyms::KEY_XF86Switch_VT_1..=xkb::keysyms::KEY_XF86Switch_VT_12)
+                .contains(&raw)
+            {
                 rift.suppressed_keys.insert(keycode);
-                return FilterResult::Intercept(Some(Action::SwitchVt((raw - xkb::keysyms::KEY_XF86Switch_VT_1 + 1) as i32)));
+                return FilterResult::Intercept(Some(Action::SwitchVt(
+                    (raw - xkb::keysyms::KEY_XF86Switch_VT_1 + 1) as i32,
+                )));
             }
             if locked {
                 return FilterResult::Forward;
             }
-            let found = rift.bindings.iter().find(|b| matches(&b.combo, mods, sym)).map(|b| b.action.clone());
+            let found = rift
+                .bindings
+                .iter()
+                .find(|b| matches(&b.combo, mods, sym))
+                .map(|b| b.action.clone());
             match found {
                 Some(action) => {
                     rift.suppressed_keys.insert(keycode);
@@ -110,7 +132,13 @@ impl Rift {
             .iter()
             .map(|o| {
                 let s = self.output_logical_size(&o.output);
-                let pos = self.config.outputs.get(&o.output.name()).and_then(|c| c.position).map(|p| p.0).unwrap_or(o.lane);
+                let pos = self
+                    .config
+                    .outputs
+                    .get(&o.output.name())
+                    .and_then(|c| c.position)
+                    .map(|p| p.0)
+                    .unwrap_or(o.lane);
                 (o.lane, s.w as f64, s.h as f64, pos)
             })
             .collect();
@@ -119,10 +147,20 @@ impl Rift {
     }
 
     /// Move the pointer by `delta`, crossing to neighbouring outputs at the edges.
-    fn move_pointer(&self, from: Point<f64, Logical>, delta: Point<f64, Logical>) -> Point<f64, Logical> {
+    fn move_pointer(
+        &self,
+        from: Point<f64, Logical>,
+        delta: Point<f64, Logical>,
+    ) -> Point<f64, Logical> {
         let strip = self.output_strip();
-        let Some(mut i) = strip.iter().position(|(lane, w, _)| from.x >= *lane as f64 && from.x < *lane as f64 + w) else {
-            return strip.first().map(|(l, _, _)| Point::from((*l as f64, 0.0))).unwrap_or(from);
+        let Some(mut i) = strip
+            .iter()
+            .position(|(lane, w, _)| from.x >= *lane as f64 && from.x < *lane as f64 + w)
+        else {
+            return strip
+                .first()
+                .map(|(l, _, _)| Point::from((*l as f64, 0.0)))
+                .unwrap_or(from);
         };
         let mut x = from.x - strip[i].0 as f64 + delta.x;
         let mut y = from.y + delta.y;
@@ -150,7 +188,9 @@ impl Rift {
             with_pointer_constraint(surface, &pointer, |c| {
                 if let Some(c) = c {
                     if c.is_active() {
-                        let inside = c.region().is_none_or(|r| r.contains((self.pointer_location - *origin).to_i32_round()));
+                        let inside = c.region().is_none_or(|r| {
+                            r.contains((self.pointer_location - *origin).to_i32_round())
+                        });
                         if inside && matches!(&*c, PointerConstraint::Locked(_)) {
                             locked = true;
                         }
@@ -161,7 +201,11 @@ impl Rift {
         pointer.relative_motion(
             self,
             under.clone(),
-            &RelativeMotionEvent { delta: event.delta(), delta_unaccel: event.delta_unaccel(), time: event.time() },
+            &RelativeMotionEvent {
+                delta: event.delta(),
+                delta_unaccel: event.delta_unaccel(),
+                time: event.time(),
+            },
         );
         if locked {
             pointer.frame(self);
@@ -172,18 +216,33 @@ impl Rift {
     }
 
     fn on_pointer_absolute<B: InputBackend>(&mut self, event: B::PointerMotionAbsoluteEvent) {
-        let Some(o) = self.outputs.first() else { return };
+        let Some(o) = self.outputs.first() else {
+            return;
+        };
         let size = self.output_logical_size(&o.output);
         let pos = event.position_transformed(size) + Point::from((o.lane as f64, 0.0));
         self.set_pointer(pos, SERIAL_COUNTER.next_serial(), event.time());
     }
 
-    fn set_pointer(&mut self, pos: Point<f64, Logical>, serial: smithay::utils::Serial, time: smithay::backend::input::InputTime) {
+    fn set_pointer(
+        &mut self,
+        pos: Point<f64, Logical>,
+        serial: smithay::utils::Serial,
+        time: smithay::backend::input::InputTime,
+    ) {
         let old_output = self.output_at(self.pointer_location);
         self.pointer_location = pos;
         let under = self.surface_under(pos);
         let pointer = self.seat.get_pointer().unwrap();
-        pointer.motion(self, under.clone(), &MotionEvent { location: pos, serial, time });
+        pointer.motion(
+            self,
+            under.clone(),
+            &MotionEvent {
+                location: pos,
+                serial,
+                time,
+            },
+        );
         pointer.frame(self);
 
         let new_output = self.output_at(pos);
@@ -233,11 +292,22 @@ impl Rift {
             }
         }
         let pointer = self.seat.get_pointer().unwrap();
-        pointer.button(self, &ButtonEvent { button: event.button_code(), state: state.try_into().unwrap(), serial, time: event.time() });
+        pointer.button(
+            self,
+            &ButtonEvent {
+                button: event.button_code(),
+                state,
+                serial,
+                time: event.time(),
+            },
+        );
         pointer.frame(self);
     }
 
-    fn is_interactive_layer(&self, surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface) -> bool {
+    fn is_interactive_layer(
+        &self,
+        surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+    ) -> bool {
         use smithay::wayland::shell::wlr_layer::KeyboardInteractivity;
         self.outputs.iter().any(|o| {
             let map = smithay::desktop::layer_map_for_output(&o.output);
@@ -249,17 +319,25 @@ impl Rift {
 
     fn on_pointer_axis<B: InputBackend>(&mut self, event: B::PointerAxisEvent) {
         let source = event.source();
-        let h = event.amount(Axis::Horizontal).unwrap_or_else(|| event.amount_v120(Axis::Horizontal).unwrap_or(0.0) * 15.0 / 120.0);
-        let v = event.amount(Axis::Vertical).unwrap_or_else(|| event.amount_v120(Axis::Vertical).unwrap_or(0.0) * 15.0 / 120.0);
+        let h = event
+            .amount(Axis::Horizontal)
+            .unwrap_or_else(|| event.amount_v120(Axis::Horizontal).unwrap_or(0.0) * 15.0 / 120.0);
+        let v = event
+            .amount(Axis::Vertical)
+            .unwrap_or_else(|| event.amount_v120(Axis::Vertical).unwrap_or(0.0) * 15.0 / 120.0);
         let mut frame = AxisFrame::new(event.time()).source(source);
         if h != 0.0 {
-            frame = frame.relative_direction(Axis::Horizontal, event.relative_direction(Axis::Horizontal)).value(Axis::Horizontal, h);
+            frame = frame
+                .relative_direction(Axis::Horizontal, event.relative_direction(Axis::Horizontal))
+                .value(Axis::Horizontal, h);
             if let Some(d) = event.amount_v120(Axis::Horizontal) {
                 frame = frame.v120(Axis::Horizontal, d as i32);
             }
         }
         if v != 0.0 {
-            frame = frame.relative_direction(Axis::Vertical, event.relative_direction(Axis::Vertical)).value(Axis::Vertical, v);
+            frame = frame
+                .relative_direction(Axis::Vertical, event.relative_direction(Axis::Vertical))
+                .value(Axis::Vertical, v);
             if let Some(d) = event.amount_v120(Axis::Vertical) {
                 frame = frame.v120(Axis::Vertical, d as i32);
             }
@@ -292,7 +370,11 @@ impl Rift {
     }
 
     pub fn close_focused(&mut self) {
-        if let Some(t) = self.layout.focused_window().and_then(|w| w.toplevel().cloned()) {
+        if let Some(t) = self
+            .layout
+            .focused_window()
+            .and_then(|w| w.toplevel().cloned())
+        {
             t.send_close();
         }
     }
@@ -351,11 +433,15 @@ impl Rift {
     }
 
     fn warp_pointer_to_active_monitor(&mut self) {
-        let Some(output) = self.active_output() else { return };
+        let Some(output) = self.active_output() else {
+            return;
+        };
         if self.output_at(self.pointer_location).as_ref() == Some(&output) {
             return;
         }
-        let Some(lane) = self.output_state(&output).map(|o| o.lane) else { return };
+        let Some(lane) = self.output_state(&output).map(|o| o.lane) else {
+            return;
+        };
         let size = self.output_logical_size(&output);
         self.pointer_location = (lane as f64 + size.w as f64 / 2.0, size.h as f64 / 2.0).into();
         self.request_redraw_all();

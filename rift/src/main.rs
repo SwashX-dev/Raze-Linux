@@ -53,14 +53,20 @@ fn main() {
                     .and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?)))
                     .unwrap_or_else(|| die("--size expects WxH"));
             }
-            "--outputs" => outputs = it.next().and_then(|n| n.parse().ok()).unwrap_or_else(|| die("--outputs expects a number")),
+            "--outputs" => {
+                outputs = it
+                    .next()
+                    .and_then(|n| n.parse().ok())
+                    .unwrap_or_else(|| die("--outputs expects a number"))
+            }
             other => die(&format!("unknown argument {other:?}\n{USAGE}")),
         }
     }
 
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_env("RIFT_LOG").unwrap_or_else(|_| "rift=info,smithay=warn".into()),
+            tracing_subscriber::EnvFilter::try_from_env("RIFT_LOG")
+                .unwrap_or_else(|_| "rift=info,smithay=warn".into()),
         )
         .with_writer(std::io::stderr)
         .init();
@@ -78,17 +84,32 @@ fn main() {
         tracing::warn!("configuration error, using defaults: {e}");
     }
 
-    let mut event_loop: EventLoop<'static, Rift> = EventLoop::try_new().unwrap_or_else(|e| die(&format!("event loop: {e}")));
-    let display: Display<Rift> = Display::new().unwrap_or_else(|e| die(&format!("Wayland display: {e}")));
+    let mut event_loop: EventLoop<'static, Rift> =
+        EventLoop::try_new().unwrap_or_else(|e| die(&format!("event loop: {e}")));
+    let display: Display<Rift> =
+        Display::new().unwrap_or_else(|e| die(&format!("Wayland display: {e}")));
 
     let backend = match backend_kind.as_str() {
-        "headless" => Backend::Headless(backend::headless::Headless::new(size).unwrap_or_else(|e| die(&e))),
-        "winit" => Backend::Winit(backend::winit::Winit::new(&event_loop).unwrap_or_else(|e| die(&e))),
-        "udev" | "drm" | "tty" => Backend::Udev(backend::udev::Udev::new(&event_loop).unwrap_or_else(|e| die(&e))),
+        "headless" => Backend::Headless(Box::new(
+            backend::headless::Headless::new(size).unwrap_or_else(|e| die(&e)),
+        )),
+        "winit" => Backend::Winit(Box::new(
+            backend::winit::Winit::new(&event_loop).unwrap_or_else(|e| die(&e)),
+        )),
+        "udev" | "drm" | "tty" => Backend::Udev(Box::new(
+            backend::udev::Udev::new(&event_loop).unwrap_or_else(|e| die(&e)),
+        )),
         other => die(&format!("unknown backend {other:?}")),
     };
 
-    let mut state = Rift::new(display, event_loop.handle(), event_loop.get_signal(), backend, config, config_error);
+    let mut state = Rift::new(
+        display,
+        event_loop.handle(),
+        event_loop.get_signal(),
+        backend,
+        config,
+        config_error,
+    );
     match &state.backend {
         Backend::Headless(_) => backend::headless::init(&mut state, outputs),
         Backend::Winit(_) => backend::winit::init(&mut state),

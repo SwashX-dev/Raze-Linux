@@ -74,7 +74,10 @@ impl CompositorHandler for Rift {
     }
 
     fn client_compositor_state<'a>(&self, client: &'a Client) -> &'a CompositorClientState {
-        &client.get_data::<ClientState>().expect("unknown client data").compositor_state
+        &client
+            .get_data::<ClientState>()
+            .expect("unknown client data")
+            .compositor_state
     }
 
     fn commit(&mut self, surface: &WlSurface) {
@@ -87,7 +90,11 @@ impl CompositorHandler for Rift {
                 root = parent;
             }
             // A toplevel waiting for its first buffer.
-            if let Some(i) = self.unmapped.iter().position(|w| w.toplevel().map(|t| t.wl_surface() == &root).unwrap_or(false)) {
+            if let Some(i) = self.unmapped.iter().position(|w| {
+                w.toplevel()
+                    .map(|t| t.wl_surface() == &root)
+                    .unwrap_or(false)
+            }) {
                 let window = self.unmapped[i].clone();
                 window.on_commit();
                 let toplevel = window.toplevel().unwrap().clone();
@@ -123,18 +130,26 @@ impl CompositorHandler for Rift {
 
         // Layer surfaces.
         let layer_output = self.outputs.iter().map(|o| o.output.clone()).find(|o| {
-            layer_map_for_output(o).layer_for_surface(surface, WindowSurfaceType::TOPLEVEL).is_some()
+            layer_map_for_output(o)
+                .layer_for_surface(surface, WindowSurfaceType::TOPLEVEL)
+                .is_some()
         });
         if let Some(output) = layer_output {
             let initial_sent = with_states(surface, |states| {
-                states.data_map.get::<LayerSurfaceData>().map(|d| d.lock().unwrap().initial_configure_sent).unwrap_or(true)
+                states
+                    .data_map
+                    .get::<LayerSurfaceData>()
+                    .map(|d| d.lock().unwrap().initial_configure_sent)
+                    .unwrap_or(true)
             });
             let changed = {
                 let mut map = layer_map_for_output(&output);
                 map.arrange()
             };
             if !initial_sent {
-                if let Some(layer) = layer_map_for_output(&output).layer_for_surface(surface, WindowSurfaceType::TOPLEVEL) {
+                if let Some(layer) = layer_map_for_output(&output)
+                    .layer_for_surface(surface, WindowSurfaceType::TOPLEVEL)
+                {
                     layer.layer_surface().send_configure();
                 }
             }
@@ -170,15 +185,26 @@ impl Rift {
             let scale = o.current_scale();
             let transform = o.current_transform();
             with_states(toplevel.wl_surface(), |states| {
-                smithay::wayland::compositor::send_surface_state(toplevel.wl_surface(), states, scale.integer_scale(), transform);
-                with_fractional_scale(states, |fs| fs.set_preferred_scale(scale.fractional_scale()));
+                smithay::wayland::compositor::send_surface_state(
+                    toplevel.wl_surface(),
+                    states,
+                    scale.integer_scale(),
+                    transform,
+                );
+                with_fractional_scale(states, |fs| {
+                    fs.set_preferred_scale(scale.fractional_scale())
+                });
             });
         }
         toplevel.send_configure();
     }
 
     pub fn active_output(&self) -> Option<Output> {
-        let name = self.layout.monitors.get(self.layout.active_monitor).map(|m| m.name.clone());
+        let name = self
+            .layout
+            .monitors
+            .get(self.layout.active_monitor)
+            .map(|m| m.name.clone());
         self.outputs
             .iter()
             .find(|o| Some(o.output.name()) == name)
@@ -187,11 +213,17 @@ impl Rift {
     }
 
     fn unconstrain_popup(&self, popup: &PopupSurface) {
-        let Ok(root) = find_popup_root_surface(&PopupKind::Xdg(popup.clone())) else { return };
+        let Ok(root) = find_popup_root_surface(&PopupKind::Xdg(popup.clone())) else {
+            return;
+        };
         // Popups of toplevels: keep inside the toplevel's output.
         let (origin, output) = if let Some(window) = self.window_for_surface(&root) {
-            let Some(loc) = self.space.element_location(&window) else { return };
-            let Some(output) = self.space.outputs_for_element(&window).into_iter().next() else { return };
+            let Some(loc) = self.space.element_location(&window) else {
+                return;
+            };
+            let Some(output) = self.space.outputs_for_element(&window).into_iter().next() else {
+                return;
+            };
             (loc + window.geometry().loc, output)
         } else {
             // Popups of layer surfaces (panel menus).
@@ -204,7 +236,9 @@ impl Rift {
             let Some(f) = found else { return };
             f
         };
-        let Some(out_geo) = self.space.output_geometry(&output) else { return };
+        let Some(out_geo) = self.space.output_geometry(&output) else {
+            return;
+        };
         let mut target = out_geo;
         target.loc -= get_popup_toplevel_coords(&PopupKind::Xdg(popup.clone()));
         target.loc -= origin;
@@ -237,7 +271,12 @@ impl XdgShellHandler for Rift {
         }
     }
 
-    fn reposition_request(&mut self, surface: PopupSurface, positioner: PositionerState, token: u32) {
+    fn reposition_request(
+        &mut self,
+        surface: PopupSurface,
+        positioner: PositionerState,
+        token: u32,
+    ) {
         surface.with_pending_state(|state| {
             state.geometry = positioner.get_geometry();
             state.positioner = positioner;
@@ -247,13 +286,20 @@ impl XdgShellHandler for Rift {
     }
 
     fn grab(&mut self, surface: PopupSurface, seat: WlSeat, serial: Serial) {
-        let Some(seat) = Seat::<Rift>::from_resource(&seat) else { return };
+        let Some(seat) = Seat::<Rift>::from_resource(&seat) else {
+            return;
+        };
         let kind = PopupKind::Xdg(surface);
-        let Ok(root) = find_popup_root_surface(&kind) else { return };
-        let Ok(mut grab) = self.popups.grab_popup(root, kind, &seat, serial) else { return };
+        let Ok(root) = find_popup_root_surface(&kind) else {
+            return;
+        };
+        let Ok(mut grab) = self.popups.grab_popup(root, kind, &seat, serial) else {
+            return;
+        };
         if let Some(keyboard) = seat.get_keyboard() {
             if keyboard.is_grabbed()
-                && !(keyboard.has_grab(serial) || keyboard.has_grab(grab.previous_serial().unwrap_or(serial)))
+                && !(keyboard.has_grab(serial)
+                    || keyboard.has_grab(grab.previous_serial().unwrap_or(serial)))
             {
                 grab.ungrab(PopupUngrabStrategy::All);
                 return;
@@ -263,7 +309,8 @@ impl XdgShellHandler for Rift {
         }
         if let Some(pointer) = seat.get_pointer() {
             if pointer.is_grabbed()
-                && !(pointer.has_grab(serial) || pointer.has_grab(grab.previous_serial().unwrap_or_else(|| grab.serial())))
+                && !(pointer.has_grab(serial)
+                    || pointer.has_grab(grab.previous_serial().unwrap_or_else(|| grab.serial())))
             {
                 grab.ungrab(PopupUngrabStrategy::All);
                 return;
@@ -354,8 +401,17 @@ impl WlrLayerShellHandler for Rift {
         &mut self.layer_shell_state
     }
 
-    fn new_layer_surface(&mut self, surface: WlrLayerSurface, output: Option<WlOutput>, _layer: Layer, namespace: String) {
-        let output = output.as_ref().and_then(Output::from_resource).or_else(|| self.active_output());
+    fn new_layer_surface(
+        &mut self,
+        surface: WlrLayerSurface,
+        output: Option<WlOutput>,
+        _layer: Layer,
+        namespace: String,
+    ) {
+        let output = output
+            .as_ref()
+            .and_then(Output::from_resource)
+            .or_else(|| self.active_output());
         let Some(output) = output else {
             surface.send_close();
             return;
@@ -369,7 +425,10 @@ impl WlrLayerShellHandler for Rift {
     fn layer_destroyed(&mut self, surface: WlrLayerSurface) {
         for o in &self.outputs {
             let mut map = layer_map_for_output(&o.output);
-            let layer = map.layers().find(|l| l.layer_surface() == &surface).cloned();
+            let layer = map
+                .layers()
+                .find(|l| l.layer_surface() == &surface)
+                .cloned();
             if let Some(layer) = layer {
                 map.unmap_layer(&layer);
             }
@@ -389,7 +448,12 @@ impl DmabufHandler for Rift {
         &mut self.dmabuf_state
     }
 
-    fn dmabuf_imported(&mut self, _global: &DmabufGlobal, dmabuf: Dmabuf, notifier: ImportNotifier) {
+    fn dmabuf_imported(
+        &mut self,
+        _global: &DmabufGlobal,
+        dmabuf: Dmabuf,
+        notifier: ImportNotifier,
+    ) {
         if self.backend.import_dmabuf(&dmabuf) {
             let _ = notifier.successful::<Rift>();
         } else {
@@ -439,19 +503,37 @@ impl DataDeviceHandler for Rift {
 }
 
 impl WaylandDndGrabHandler for Rift {
-    fn dnd_requested<S: Source>(&mut self, source: S, icon: Option<WlSurface>, seat: Seat<Self>, serial: Serial, type_: GrabType) {
+    fn dnd_requested<S: Source>(
+        &mut self,
+        source: S,
+        icon: Option<WlSurface>,
+        seat: Seat<Self>,
+        serial: Serial,
+        type_: GrabType,
+    ) {
         self.dnd_icon = icon;
         if let GrabType::Pointer = type_ {
             let pointer = seat.get_pointer().unwrap();
             if let Some(start) = pointer.grab_start_data() {
-                pointer.set_grab(self, DnDGrab::new_pointer(&self.display_handle, start, source, seat), serial, Focus::Keep);
+                pointer.set_grab(
+                    self,
+                    DnDGrab::new_pointer(&self.display_handle, start, source, seat),
+                    serial,
+                    Focus::Keep,
+                );
             }
         }
     }
 }
 
 impl DndGrabHandler for Rift {
-    fn dropped(&mut self, _target: Option<DndTarget<'_, Self>>, _validated: bool, _seat: Seat<Self>, _location: Point<f64, Logical>) {
+    fn dropped(
+        &mut self,
+        _target: Option<DndTarget<'_, Self>>,
+        _validated: bool,
+        _seat: Seat<Self>,
+        _location: Point<f64, Logical>,
+    ) {
         self.dnd_icon = None;
     }
 }
@@ -476,7 +558,9 @@ impl FractionalScaleHandler for Rift {
             .active_output()
             .map(|o| o.current_scale().fractional_scale())
             .unwrap_or(1.0);
-        with_states(&surface, |states| with_fractional_scale(states, |fs| fs.set_preferred_scale(scale)));
+        with_states(&surface, |states| {
+            with_fractional_scale(states, |fs| fs.set_preferred_scale(scale))
+        });
     }
 }
 
@@ -491,13 +575,21 @@ impl XdgActivationHandler for Rift {
             Some((serial, seat)) => {
                 let keyboard = self.seat.get_keyboard().unwrap();
                 Seat::from_resource(&seat) == Some(self.seat.clone())
-                    && keyboard.last_enter().map(|e| serial.is_no_older_than(&e)).unwrap_or(false)
+                    && keyboard
+                        .last_enter()
+                        .map(|e| serial.is_no_older_than(&e))
+                        .unwrap_or(false)
             }
             None => true,
         }
     }
 
-    fn request_activation(&mut self, _token: XdgActivationToken, data: XdgActivationTokenData, surface: WlSurface) {
+    fn request_activation(
+        &mut self,
+        _token: XdgActivationToken,
+        data: XdgActivationTokenData,
+        surface: WlSurface,
+    ) {
         if data.timestamp.elapsed().as_secs() < 10 {
             if let Some(window) = self.window_for_surface(&surface) {
                 self.layout.focus_window(&window);
@@ -534,7 +626,9 @@ impl SessionLockHandler for Rift {
     }
 
     fn new_surface(&mut self, surface: LockSurface, output: WlOutput) {
-        let Some(output) = Output::from_resource(&output) else { return };
+        let Some(output) = Output::from_resource(&output) else {
+            return;
+        };
         let size = self.output_logical_size(&output);
         surface.with_pending_state(|s| s.size = Some((size.w as u32, size.h as u32).into()));
         surface.send_configure();
@@ -560,7 +654,8 @@ impl IdleInhibitHandler for Rift {
 
     fn uninhibit(&mut self, surface: WlSurface) {
         self.idle_inhibitors.retain(|s| s != &surface);
-        self.idle_notifier_state.set_is_inhibited(!self.idle_inhibitors.is_empty());
+        self.idle_notifier_state
+            .set_is_inhibited(!self.idle_inhibitors.is_empty());
     }
 }
 
@@ -581,7 +676,13 @@ impl PointerConstraintsHandler for Rift {
         }
     }
 
-    fn cursor_position_hint(&mut self, _surface: &WlSurface, _pointer: &PointerHandle<Self>, _location: Point<f64, Logical>) {}
+    fn cursor_position_hint(
+        &mut self,
+        _surface: &WlSurface,
+        _pointer: &PointerHandle<Self>,
+        _location: Point<f64, Logical>,
+    ) {
+    }
 }
 
 impl ImageCaptureSourceHandler for Rift {

@@ -20,7 +20,9 @@ use smithay::reexports::wayland_server::backend::{ClientData, ClientId, Disconne
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::reexports::wayland_server::{Display, DisplayHandle};
 use smithay::utils::{Logical, Point, Rectangle, Size, SERIAL_COUNTER};
-use smithay::wayland::compositor::{send_surface_state, with_states, CompositorClientState, CompositorState};
+use smithay::wayland::compositor::{
+    send_surface_state, with_states, CompositorClientState, CompositorState,
+};
 use smithay::wayland::cursor_shape::CursorShapeManagerState;
 use smithay::wayland::dmabuf::DmabufState;
 use smithay::wayland::foreign_toplevel_list::{ForeignToplevelHandle, ForeignToplevelListState};
@@ -66,6 +68,8 @@ pub struct OutputState {
     pub powered: bool,
 }
 
+// Protocol state objects own their globals; several are only kept alive, not read.
+#[allow(dead_code)]
 pub struct Rift {
     pub start_time: Instant,
     pub display_handle: DisplayHandle,
@@ -151,7 +155,11 @@ pub fn layout_config(c: &Config) -> LayoutConfig {
         presets: c.layout.presets.clone(),
         default_width: c.layout.default_width,
         center_focused: c.layout.center_focused,
-        animation_ms: if c.animations.enabled { c.animations.duration_ms } else { 0 },
+        animation_ms: if c.animations.enabled {
+            c.animations.duration_ms
+        } else {
+            0
+        },
     }
 }
 
@@ -170,19 +178,25 @@ impl Rift {
         let socket_name = source.socket_name().to_os_string();
         loop_handle
             .insert_source(source, |stream, _, state: &mut Rift| {
-                if let Err(e) = state.display_handle.insert_client(stream, Arc::new(ClientState::default())) {
+                if let Err(e) = state
+                    .display_handle
+                    .insert_client(stream, Arc::new(ClientState::default()))
+                {
                     tracing::warn!("cannot add client: {e}");
                 }
             })
             .expect("cannot listen on the Wayland socket");
         loop_handle
-            .insert_source(Generic::new(display, Interest::READ, Mode::Level), |_, display, state| {
-                // SAFETY: the display is never dropped while the source exists.
-                unsafe {
-                    display.get_mut().dispatch_clients(state).unwrap();
-                }
-                Ok(PostAction::Continue)
-            })
+            .insert_source(
+                Generic::new(display, Interest::READ, Mode::Level),
+                |_, display, state| {
+                    // SAFETY: the display is never dropped while the source exists.
+                    unsafe {
+                        display.get_mut().dispatch_clients(state).unwrap();
+                    }
+                    Ok(PostAction::Continue)
+                },
+            )
             .expect("cannot watch the Wayland display");
 
         let compositor_state = CompositorState::new::<Rift>(&dh);
@@ -194,7 +208,8 @@ impl Rift {
         let output_manager_state = OutputManagerState::new_with_xdg_output::<Rift>(&dh);
         let data_device_state = DataDeviceState::new::<Rift>(&dh);
         let primary_selection_state = PrimarySelectionState::new::<Rift>(&dh);
-        let data_control_state = DataControlState::new::<Rift, _>(&dh, Some(&primary_selection_state), |_| true);
+        let data_control_state =
+            DataControlState::new::<Rift, _>(&dh, Some(&primary_selection_state), |_| true);
         let viewporter_state = ViewporterState::new::<Rift>(&dh);
         let fractional_scale_state = FractionalScaleManagerState::new::<Rift>(&dh);
         let xdg_activation_state = XdgActivationState::new::<Rift>(&dh);
@@ -218,13 +233,18 @@ impl Rift {
         let xkb = XkbConfig {
             layout: &kb.layout,
             variant: &kb.variant,
-            options: if kb.options.is_empty() { None } else { Some(kb.options.clone()) },
+            options: if kb.options.is_empty() {
+                None
+            } else {
+                Some(kb.options.clone())
+            },
             model: &kb.model,
             ..Default::default()
         };
         if let Err(e) = seat.add_keyboard(xkb, kb.repeat_delay, kb.repeat_rate) {
             tracing::warn!("keyboard layout rejected ({e:?}); using defaults");
-            seat.add_keyboard(XkbConfig::default(), kb.repeat_delay, kb.repeat_rate).expect("default keymap");
+            seat.add_keyboard(XkbConfig::default(), kb.repeat_delay, kb.repeat_rate)
+                .expect("default keymap");
         }
         seat.add_pointer();
 
@@ -301,7 +321,12 @@ impl Rift {
         let name = output.name();
         let cfg = self.config.outputs.get(&name).cloned().unwrap_or_default();
         if let Some(s) = cfg.scale {
-            output.change_current_state(None, None, Some(smithay::output::Scale::Fractional(s)), None);
+            output.change_current_state(
+                None,
+                None,
+                Some(smithay::output::Scale::Fractional(s)),
+                None,
+            );
         }
         let lane = (0..)
             .map(|i| i * LANE)
@@ -314,7 +339,15 @@ impl Rift {
         if self.outputs.is_empty() {
             self.pointer_location = (lane as f64 + size.w as f64 / 2.0, size.h as f64 / 2.0).into();
         }
-        self.outputs.push(OutputState { output, lane, redraw: true, pending: false, lock_surface: None, locked_frame: false, powered: true });
+        self.outputs.push(OutputState {
+            output,
+            lane,
+            redraw: true,
+            pending: false,
+            lock_surface: None,
+            locked_frame: false,
+            powered: true,
+        });
         self.relayout();
     }
 
@@ -335,9 +368,17 @@ impl Rift {
     }
 
     pub fn output_logical_size(&self, output: &Output) -> Size<i32, Logical> {
-        let mode = output.current_mode().map(|m| m.size).unwrap_or((1280, 800).into());
+        let mode = output
+            .current_mode()
+            .map(|m| m.size)
+            .unwrap_or((1280, 800).into());
         let scale = output.current_scale().fractional_scale();
-        output.current_transform().transform_size(mode).to_f64().to_logical(scale).to_i32_round()
+        output
+            .current_transform()
+            .transform_size(mode)
+            .to_f64()
+            .to_logical(scale)
+            .to_i32_round()
     }
 
     pub fn output_state(&self, output: &Output) -> Option<&OutputState> {
@@ -350,7 +391,9 @@ impl Rift {
             .iter()
             .find(|o| {
                 let size = self.output_logical_size(&o.output);
-                Rectangle::new((o.lane, 0).into(), size).to_f64().contains(pos)
+                Rectangle::new((o.lane, 0).into(), size)
+                    .to_f64()
+                    .contains(pos)
             })
             .map(|o| o.output.clone())
     }
@@ -372,16 +415,28 @@ impl Rift {
     pub fn window_for_surface(&self, surface: &WlSurface) -> Option<Window> {
         self.layout
             .windows()
-            .find(|w| w.toplevel().map(|t| t.wl_surface() == surface).unwrap_or(false))
+            .find(|w| {
+                w.toplevel()
+                    .map(|t| t.wl_surface() == surface)
+                    .unwrap_or(false)
+            })
             .cloned()
     }
 
     pub fn app_id_title(window: &Window) -> (String, String) {
-        let Some(toplevel) = window.toplevel() else { return Default::default() };
+        let Some(toplevel) = window.toplevel() else {
+            return Default::default();
+        };
         with_states(toplevel.wl_surface(), |states| {
-            let data = states.data_map.get::<XdgToplevelSurfaceData>().map(|d| d.lock().unwrap());
+            let data = states
+                .data_map
+                .get::<XdgToplevelSurfaceData>()
+                .map(|d| d.lock().unwrap());
             match data {
-                Some(d) => (d.app_id.clone().unwrap_or_default(), d.title.clone().unwrap_or_default()),
+                Some(d) => (
+                    d.app_id.clone().unwrap_or_default(),
+                    d.title.clone().unwrap_or_default(),
+                ),
                 None => Default::default(),
             }
         })
@@ -392,7 +447,9 @@ impl Rift {
         let (app_id, title) = Self::app_id_title(&window);
         let rule = self.config.rule_for(&app_id, &title);
         if let Some(t) = window.toplevel() {
-            let handle = self.foreign_toplevel_state.new_toplevel::<Rift>(title.clone(), app_id.clone());
+            let handle = self
+                .foreign_toplevel_state
+                .new_toplevel::<Rift>(title.clone(), app_id.clone());
             self.toplevel_handles.insert(t.wl_surface().clone(), handle);
         }
         self.layout.add_window(window, &rule);
@@ -424,7 +481,10 @@ impl Rift {
 
     fn lane_of_monitor(&self, monitor: usize) -> Option<(i32, Output)> {
         let name = self.layout.monitors.get(monitor)?.name.clone();
-        self.outputs.iter().find(|o| o.output.name() == name).map(|o| (o.lane, o.output.clone()))
+        self.outputs
+            .iter()
+            .find(|o| o.output.name() == name)
+            .map(|o| (o.lane, o.output.clone()))
     }
 
     /// Apply the layout: position/size every window, update focus and working areas.
@@ -439,7 +499,9 @@ impl Rift {
         }
         let placements: Vec<Placement<Window>> = self.layout.arrange(Instant::now());
         for p in &placements {
-            let Some(toplevel) = p.window.toplevel() else { continue };
+            let Some(toplevel) = p.window.toplevel() else {
+                continue;
+            };
             toplevel.with_pending_state(|s| {
                 s.size = Some((p.rect.w, p.rect.h).into());
                 if p.focused {
@@ -472,7 +534,9 @@ impl Rift {
                     let transform = output.current_transform();
                     p.window.with_surfaces(|surface, states| {
                         send_surface_state(surface, states, scale.integer_scale(), transform);
-                        with_fractional_scale(states, |fs| fs.set_preferred_scale(scale.fractional_scale()));
+                        with_fractional_scale(states, |fs| {
+                            fs.set_preferred_scale(scale.fractional_scale())
+                        });
                     });
                 }
                 _ => self.space.unmap_elem(&p.window),
@@ -484,7 +548,9 @@ impl Rift {
             for layer in layer_map_for_output(&o.output).layers() {
                 layer.with_surfaces(|surface, states| {
                     send_surface_state(surface, states, scale.integer_scale(), transform);
-                    with_fractional_scale(states, |fs| fs.set_preferred_scale(scale.fractional_scale()));
+                    with_fractional_scale(states, |fs| {
+                        fs.set_preferred_scale(scale.fractional_scale())
+                    });
                 });
             }
         }
@@ -509,7 +575,11 @@ impl Rift {
         let keyboard = self.seat.get_keyboard().unwrap();
         let serial = SERIAL_COUNTER.next_serial();
         let target: Option<WlSurface> = if self.locked {
-            let active = self.layout.monitors.get(self.layout.active_monitor).map(|m| m.name.clone());
+            let active = self
+                .layout
+                .monitors
+                .get(self.layout.active_monitor)
+                .map(|m| m.name.clone());
             self.outputs
                 .iter()
                 .find(|o| Some(o.output.name()) == active)
@@ -518,7 +588,9 @@ impl Rift {
         } else if let Some(layer) = self.exclusive_layer() {
             Some(layer.wl_surface().clone())
         } else {
-            self.layout.focused_window().and_then(|w| w.toplevel().map(|t| t.wl_surface().clone()))
+            self.layout
+                .focused_window()
+                .and_then(|w| w.toplevel().map(|t| t.wl_surface().clone()))
         };
         if keyboard.current_focus() != target {
             keyboard.set_focus(self, target, serial);
@@ -531,7 +603,8 @@ impl Rift {
         for o in &self.outputs {
             let map = layer_map_for_output(&o.output);
             for layer in map.layers() {
-                let exclusive = layer.cached_state().keyboard_interactivity == KeyboardInteractivity::Exclusive;
+                let exclusive =
+                    layer.cached_state().keyboard_interactivity == KeyboardInteractivity::Exclusive;
                 if exclusive && matches!(layer.layer(), Layer::Top | Layer::Overlay) {
                     return Some(layer.clone());
                 }
@@ -541,7 +614,10 @@ impl Rift {
     }
 
     /// Topmost surface under the pointer, with its origin in Space coordinates.
-    pub fn surface_under(&self, pos: Point<f64, Logical>) -> Option<(WlSurface, Point<f64, Logical>)> {
+    pub fn surface_under(
+        &self,
+        pos: Point<f64, Logical>,
+    ) -> Option<(WlSurface, Point<f64, Logical>)> {
         use smithay::wayland::shell::wlr_layer::Layer;
         let output = self.output_at(pos)?;
         let lane = self.output_state(&output)?.lane as f64;
@@ -573,15 +649,26 @@ impl Rift {
 
     pub fn child_env(&self) -> Vec<(String, String)> {
         let mut env = vec![
-            ("WAYLAND_DISPLAY".to_string(), self.socket_name.to_string_lossy().into_owned()),
+            (
+                "WAYLAND_DISPLAY".to_string(),
+                self.socket_name.to_string_lossy().into_owned(),
+            ),
             ("XDG_CURRENT_DESKTOP".to_string(), "rift".to_string()),
             ("XDG_SESSION_TYPE".to_string(), "wayland".to_string()),
-            ("RIFT_SOCKET".to_string(), self.ipc.path.display().to_string()),
+            (
+                "RIFT_SOCKET".to_string(),
+                self.ipc.path.display().to_string(),
+            ),
         ];
         if let Some(d) = &self.xwayland_display {
             env.push(("DISPLAY".to_string(), d.clone()));
         }
-        env.extend(self.config.environment.iter().map(|(k, v)| (k.clone(), v.clone())));
+        env.extend(
+            self.config
+                .environment
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone())),
+        );
         env
     }
 
@@ -606,7 +693,8 @@ impl Rift {
     }
 
     pub fn reap_children(&mut self) {
-        self.children.retain_mut(|c| matches!(c.try_wait(), Ok(None)));
+        self.children
+            .retain_mut(|c| matches!(c.try_wait(), Ok(None)));
     }
 
     /// Start xwayland-satellite on the first free X display.
@@ -674,13 +762,22 @@ impl Rift {
         for layer in layer_map_for_output(output).layers() {
             layer.send_frame(output, time, throttle, |_, _| Some(output.clone()));
         }
-        if let Some(lock) = self.output_state(output).and_then(|o| o.lock_surface.as_ref()) {
-            smithay::desktop::utils::send_frames_surface_tree(lock.wl_surface(), output, time, throttle, |_, _| {
-                Some(output.clone())
-            });
+        if let Some(lock) = self
+            .output_state(output)
+            .and_then(|o| o.lock_surface.as_ref())
+        {
+            smithay::desktop::utils::send_frames_surface_tree(
+                lock.wl_surface(),
+                output,
+                time,
+                throttle,
+                |_, _| Some(output.clone()),
+            );
         }
         if let CursorImageStatus::Surface(s) = &self.cursor_status {
-            smithay::desktop::utils::send_frames_surface_tree(s, output, time, throttle, |_, _| Some(output.clone()));
+            smithay::desktop::utils::send_frames_surface_tree(s, output, time, throttle, |_, _| {
+                Some(output.clone())
+            });
         }
     }
 
@@ -688,8 +785,11 @@ impl Rift {
     pub fn refresh(&mut self) {
         if !self.wlr_copy_clients.is_empty() {
             let backend = self.display_handle.backend_handle();
-            self.wlr_copy_clients
-                .retain(|(c, _)| c.as_ref().map(|c| backend.get_client_data(c.clone()).is_ok()).unwrap_or(false));
+            self.wlr_copy_clients.retain(|(c, _)| {
+                c.as_ref()
+                    .map(|c| backend.get_client_data(c.clone()).is_ok())
+                    .unwrap_or(false)
+            });
         }
         self.space.refresh();
         self.popups.cleanup();

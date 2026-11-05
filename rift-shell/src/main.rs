@@ -70,7 +70,11 @@ fn shell_dir() -> PathBuf {
     std::env::current_exe()
         .ok()
         .and_then(|exe| exe.canonicalize().ok())
-        .and_then(|exe| exe.parent().and_then(Path::parent).map(|p| p.join("share/rift-shell/shell")))
+        .and_then(|exe| {
+            exe.parent()
+                .and_then(Path::parent)
+                .map(|p| p.join("share/rift-shell/shell"))
+        })
         .unwrap_or_else(|| PathBuf::from("/run/current-system/sw/share/rift-shell/shell"))
 }
 
@@ -83,7 +87,11 @@ fn run_shell() -> Result<(), String> {
     if std::env::var_os("QT_QUICK_BACKEND").is_none() {
         let software = rift(&["version"])
             .ok()
-            .and_then(|v| v["backend"].as_str().map(|b| b == "drm-pixman" || b == "headless"))
+            .and_then(|v| {
+                v["backend"]
+                    .as_str()
+                    .map(|b| b == "drm-pixman" || b == "headless")
+            })
             .unwrap_or(false);
         if software {
             cmd.env("QT_QUICK_BACKEND", "software");
@@ -122,7 +130,10 @@ fn output(cmd: &str, args: &[&str]) -> Result<String, String> {
 }
 
 fn run(cmd: &str, args: &[&str]) -> Result<(), String> {
-    let status = Command::new(cmd).args(args).status().map_err(|e| format!("cannot run {cmd}: {e}"))?;
+    let status = Command::new(cmd)
+        .args(args)
+        .status()
+        .map_err(|e| format!("cannot run {cmd}: {e}"))?;
     if status.success() {
         Ok(())
     } else {
@@ -140,20 +151,28 @@ fn notify(summary: &str, body: &str, icon: Option<&Path>) {
 }
 
 fn absolute(p: &str) -> Result<String, String> {
-    std::fs::canonicalize(p).map(|p| p.display().to_string()).map_err(|e| format!("{p}: {e}"))
+    std::fs::canonicalize(p)
+        .map(|p| p.display().to_string())
+        .map_err(|e| format!("{p}: {e}"))
 }
 
 fn home() -> PathBuf {
-    std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/tmp"))
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
 }
 
 /// An XDG user directory (from user-dirs.dirs), e.g. "PICTURES".
 fn xdg_user_dir(name: &str, fallback: &str) -> PathBuf {
-    let config = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).unwrap_or_else(|| home().join(".config"));
+    let config = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home().join(".config"));
     if let Ok(text) = std::fs::read_to_string(config.join("user-dirs.dirs")) {
         let key = format!("XDG_{name}_DIR=");
         if let Some(line) = text.lines().find(|l| l.starts_with(&key)) {
-            let v = line[key.len()..].trim_matches('"').replace("$HOME", &home().display().to_string());
+            let v = line[key.len()..]
+                .trim_matches('"')
+                .replace("$HOME", &home().display().to_string());
             return PathBuf::from(v);
         }
     }
@@ -206,7 +225,10 @@ fn screenshot(mode: &str) -> Result<(), String> {
     }
     // Copy to the clipboard as an image.
     if let Ok(f) = std::fs::File::open(&file) {
-        let _ = Command::new("wl-copy").args(["--type", "image/png"]).stdin(f).status();
+        let _ = Command::new("wl-copy")
+            .args(["--type", "image/png"])
+            .stdin(f)
+            .status();
     }
     notify("Screenshot saved", &file_s, Some(&file));
     println!("{file_s}");
@@ -214,7 +236,10 @@ fn screenshot(mode: &str) -> Result<(), String> {
 }
 
 fn record_pidfile() -> PathBuf {
-    std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join("rift-shell-record")
+    std::env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir)
+        .join("rift-shell-record")
 }
 
 fn recording_pid() -> Option<i32> {
@@ -250,16 +275,28 @@ fn record_start(region: bool) -> Result<(), String> {
     } else if let Some(o) = focused_output() {
         cmd.args(["-o", &o]);
     }
-    cmd.arg("-f").arg(&file).stdin(Stdio::null()).stdout(Stdio::null());
+    cmd.arg("-f")
+        .arg(&file)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null());
     let log = std::fs::File::create(record_pidfile().with_extension("log")).ok();
     if let Some(l) = log {
         cmd.stderr(l);
     }
-    let child = cmd.spawn().map_err(|e| format!("cannot start wf-recorder: {e}"))?;
-    std::fs::write(record_pidfile(), format!("{}\n{}\n", child.id(), file.display()))
-        .map_err(|e| format!("cannot write the recording state: {e}"))?;
+    let child = cmd
+        .spawn()
+        .map_err(|e| format!("cannot start wf-recorder: {e}"))?;
+    std::fs::write(
+        record_pidfile(),
+        format!("{}\n{}\n", child.id(), file.display()),
+    )
+    .map_err(|e| format!("cannot write the recording state: {e}"))?;
     let _ = ipc(&["recording", "setActive", "true"]);
-    notify("Recording started", "Stop it from the bar or with rift-shell record stop", None);
+    notify(
+        "Recording started",
+        "Stop it from the bar or with rift-shell record stop",
+        None,
+    );
     Ok(())
 }
 
@@ -268,7 +305,10 @@ fn record_stop() -> Result<(), String> {
         let _ = ipc(&["recording", "setActive", "false"]);
         return Err("not recording".into());
     };
-    let file = std::fs::read_to_string(record_pidfile()).ok().and_then(|t| t.lines().nth(1).map(String::from)).unwrap_or_default();
+    let file = std::fs::read_to_string(record_pidfile())
+        .ok()
+        .and_then(|t| t.lines().nth(1).map(String::from))
+        .unwrap_or_default();
     // SAFETY: plain kill(2) on a pid we started.
     unsafe {
         libc_kill(pid, 2);
@@ -293,7 +333,10 @@ extern "C" {
 
 fn volume(dir: &str) -> Result<(), String> {
     match dir {
-        "up" => run("wpctl", &["set-volume", "-l", "1.0", "@DEFAULT_AUDIO_SINK@", "5%+"]),
+        "up" => run(
+            "wpctl",
+            &["set-volume", "-l", "1.0", "@DEFAULT_AUDIO_SINK@", "5%+"],
+        ),
         "down" => run("wpctl", &["set-volume", "@DEFAULT_AUDIO_SINK@", "5%-"]),
         "mute" => run("wpctl", &["set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"]),
         _ => Err("volume up|down|mute".into()),
@@ -308,13 +351,20 @@ fn brightness(dir: &str) -> Result<(), String> {
     };
     run("brightnessctl", &["-q", "-c", "backlight", "set", step])?;
     let info = output("brightnessctl", &["-m", "-c", "backlight"])?;
-    let pct = info.split(',').nth(3).unwrap_or("0%").trim_end_matches('%').to_string();
+    let pct = info
+        .split(',')
+        .nth(3)
+        .unwrap_or("0%")
+        .trim_end_matches('%')
+        .to_string();
     let _ = ipc(&["osd", "brightness", &pct]);
     Ok(())
 }
 
 fn settings_path() -> PathBuf {
-    let config = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).unwrap_or_else(|| home().join(".config"));
+    let config = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home().join(".config"));
     config.join("rift-shell/settings.json")
 }
 
@@ -326,7 +376,8 @@ fn config_export(file: &str) -> Result<(), String> {
 
 fn config_import(file: &str) -> Result<(), String> {
     let text = std::fs::read_to_string(file).map_err(|e| format!("{file}: {e}"))?;
-    let v: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("{file}: not valid JSON: {e}"))?;
+    let v: serde_json::Value =
+        serde_json::from_str(&text).map_err(|e| format!("{file}: not valid JSON: {e}"))?;
     if !v.is_object() {
         return Err(format!("{file}: expected a JSON object"));
     }

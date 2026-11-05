@@ -28,8 +28,14 @@ pub struct Ipc {
 
 impl Ipc {
     pub fn new(handle: &LoopHandle<'static, Rift>, socket_name: &std::ffi::OsStr) -> Ipc {
-        let dir = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
-        let path = dir.join(format!("rift.{}.{}.sock", socket_name.to_string_lossy(), std::process::id()));
+        let dir = std::env::var_os("XDG_RUNTIME_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(std::env::temp_dir);
+        let path = dir.join(format!(
+            "rift.{}.{}.sock",
+            socket_name.to_string_lossy(),
+            std::process::id()
+        ));
         let _ = std::fs::remove_file(&path);
         match UnixListener::bind(&path) {
             Ok(listener) => {
@@ -47,7 +53,11 @@ impl Ipc {
             }
             Err(e) => tracing::warn!("IPC disabled: cannot bind {}: {e}", path.display()),
         }
-        Ipc { path, subscribers: Vec::new(), dirty: true }
+        Ipc {
+            path,
+            subscribers: Vec::new(),
+            dirty: true,
+        }
     }
 }
 
@@ -84,9 +94,14 @@ impl Rift {
     }
 
     pub fn ipc_handle(&mut self, request: &str) -> Value {
-        let (cmd, arg) = request.split_once(' ').map(|(a, b)| (a, b.trim())).unwrap_or((request, ""));
+        let (cmd, arg) = request
+            .split_once(' ')
+            .map(|(a, b)| (a, b.trim()))
+            .unwrap_or((request, ""));
         match cmd {
-            "version" => json!({ "version": env!("CARGO_PKG_VERSION"), "backend": self.backend.name() }),
+            "version" => {
+                json!({ "version": env!("CARGO_PKG_VERSION"), "backend": self.backend.name() })
+            }
             "outputs" => self.ipc_outputs(),
             "workspaces" => json!(self.layout.workspaces()),
             "windows" => self.ipc_windows(),
@@ -109,7 +124,9 @@ impl Rift {
                     "off" | "" => None,
                     t => match t.parse::<u32>() {
                         Ok(k) if (1000..=10000).contains(&k) => Some(k),
-                        _ => return json!({ "error": "night-light expects a temperature in kelvin (1000-10000) or off" }),
+                        _ => {
+                            return json!({ "error": "night-light expects a temperature in kelvin (1000-10000) or off" })
+                        }
                     },
                 };
                 self.night_light = temp;
@@ -205,7 +222,9 @@ impl Rift {
             return;
         }
         self.last_state_hash = hash;
-        self.ipc.subscribers.retain_mut(|s| writeln!(s, "{snapshot}").is_ok());
+        self.ipc
+            .subscribers
+            .retain_mut(|s| writeln!(s, "{snapshot}").is_ok());
     }
 }
 
@@ -218,11 +237,18 @@ pub fn client(args: &[String]) -> i32 {
     let mut stream = match UnixStream::connect(&path) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("rift msg: cannot connect to {}: {e}", PathBuf::from(path).display());
+            eprintln!(
+                "rift msg: cannot connect to {}: {e}",
+                PathBuf::from(path).display()
+            );
             return 1;
         }
     };
-    let request = if args.is_empty() { "state".to_string() } else { args.join(" ") };
+    let request = if args.is_empty() {
+        "state".to_string()
+    } else {
+        args.join(" ")
+    };
     if writeln!(stream, "{request}").is_err() {
         return 1;
     }
@@ -230,7 +256,11 @@ pub fn client(args: &[String]) -> i32 {
     let mut code = 0;
     for line in reader.lines() {
         let Ok(line) = line else { break };
-        if serde_json::from_str::<Value>(&line).ok().and_then(|v| v.get("error").cloned()).is_some_and(|e| !e.is_null()) {
+        if serde_json::from_str::<Value>(&line)
+            .ok()
+            .and_then(|v| v.get("error").cloned())
+            .is_some_and(|e| !e.is_null())
+        {
             code = 1;
         }
         println!("{line}");
