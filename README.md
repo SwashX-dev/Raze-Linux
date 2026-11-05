@@ -203,7 +203,24 @@ acceleration. Real hardware has not been tested for 1.1.
 All numbers are real measurements; method and environment in
 [docs/performance](docs/performance).
 
-@@BENCH_TABLE@@
+| Metric | Raze 1.1 | Compared with |
+|---|---|---|
+| Desktop boot: kernel start → login screen | **5.08 s** (r6) | systemd, same system: 6.41 s |
+| Desktop memory used at the login screen | **355 MB** (r6) | systemd: 379 MB |
+| Userspace memory at the login screen (PSS) | 93.5 MB (r6) | systemd: **73.0 MB** (socket-activated nix-daemon) |
+| PID 1 memory (RSS) | **2.6 MB** (r6-init) | systemd: 15.0 MB |
+| r6: PID 1 → 20 services started (Raze Core) | 32.9 ms | s6: **31.6 ms** (equal within noise) |
+| r6: init + supervision processes | **2** | s6: 27 |
+| Compositor CPU at idle, per minute | **0.00 s** (Rift) | niri: 0.05 s |
+| Compositor CPU, terminal updating 20×/s, per 10 s | 0.48 s (Rift) | niri: 0.50 s |
+| Desktop session memory (PSS), one terminal open | **217 MB** (Rift + Rift Shell) | niri + waybar session: 244 MB |
+| `rix search firefox` (113 419 packages) | **63.7 ms** | `nix search` warm: 1734 ms |
+| ISO size | **2.09 GB** (1.95 GiB) | 1.0.0: 2.11 GB |
+
+QEMU/KVM on an AMD Ryzen 5 7235HS host; desktop boots: 4 vCPU / 3 GiB, no 3D, 5
+interleaved boots; compositors: virgl GPU, 3 interleaved runs; Raze Core: 2 vCPU /
+256 MiB, 10 boots. Where Raze loses (systemd's lower userspace PSS, s6's lower PSS),
+the table says so.
 
 Full tables and raw data: [docs/performance/benchmarks.md](docs/performance/benchmarks.md).
 
@@ -227,7 +244,18 @@ Performance claims need measurements; delegated functionality must be labelled.
 
 ## Known limitations
 
-@@LIMITATIONS@@
+- **systemd runs inside the initramfs** (NixOS stage 1); PID 1 is r6 from
+  switch-root on. Some nixpkgs libraries still link `libsystemd`.
+- **r6 has no socket activation or timer units yet**; NixOS services without an r6
+  equivalent do not run (the system build warns and names them).
+- **Rift**: single GPU, shm-only screencopy (no wl-screenrec, no portal screen
+  sharing), no touch gestures or tablet input.
+- **Rix delegates** evaluation, builds, substitution and installs to Nix.
+- Installation and upgrades need a network connection; upgrading from 1.0 compiles
+  Raze's own packages locally (2–4 minutes in a 4-vCPU VM).
+- Not tested: BIOS installs, manual partitioning, dual boot, desktops other than Rift
+  and niri, real hardware.
+- The ISO is not signed (SHA-256 checksums only).
 
 Full list: [docs/troubleshooting/known-issues.md](docs/troubleshooting/known-issues.md)
 

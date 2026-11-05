@@ -31,7 +31,7 @@ sudo mv /etc/nixos/Raze-Linux-1.1.0 /etc/nixos/raze
 # 3. Re-lock the system flake to the new tree.
 cd /etc/nixos && sudo nix flake update raze
 
-# 4. Optional: edit /etc/nixos/configuration.nix
+# 4. Optional: edit /etc/nixos/configuration.nix (or later, then `sudo rix system switch`)
 #    - remove `raze.r6.bootEntry.enable = ...;` (no effect any more, prints a warning)
 #    - raze.desktop = "rift";   to switch to Rift + Rift Shell
 #    - raze.init = "systemd";   to stay on systemd for now
@@ -40,6 +40,11 @@ cd /etc/nixos && sudo nix flake update raze
 sudo rix system boot
 sudo reboot
 ```
+
+There is no Raze binary cache: the build compiles Raze's own packages (r6, rix, and
+Rift/Rift Shell if you switch to them) and downloads the rest from cache.nixos.org.
+In the upgrade test (4 vCPU VM, default 1.0 desktop installation) step 5 took 148 s,
+and switching that system to Rift afterwards took 219 s.
 
 Use `boot` rather than `switch` for this upgrade: the running system's PID 1
 (systemd) cannot be replaced by r6 without a reboot. After the reboot,
