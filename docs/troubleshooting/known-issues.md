@@ -13,6 +13,11 @@
 - **Untested in 1.0:** BIOS/legacy installs, manual partitioning, dual boot,
   desktops other than the default, real hardware, the `performance`, `legacy` and
   `minimal` kernel profiles on installed systems, the r6 boot entry.
+- **Live boot is slower than it could be**: the ISO uses xz to stay under GitHub's
+  2 GiB asset limit (12.5 s to the desktop in a VM without 3D, vs 6.6 s with zstd).
+  Installed systems are unaffected.
+- The installer adds a UEFI boot entry; to boot the ISO again on the same machine
+  choose it in the firmware boot menu.
 - **ISO size** is dominated by Mesa/LLVM, firmware and the Qt stack needed by the
   installer.
 - `rix search` builds its index on first use; this evaluates nixpkgs once and

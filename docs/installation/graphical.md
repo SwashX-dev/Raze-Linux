@@ -75,6 +75,6 @@ sudo rix system switch    # apply edits to /etc/nixos/configuration.nix
 
 | Scenario | Result |
 |---|---|
-| UEFI (OVMF), empty 30 GB virtio disk, erase disk, ext4, Raze Desktop (niri), QEMU/KVM with virgl | Installed, booted from disk, logged in, network, `rix install`, sudo-rs, reboot and persistence verified |
-| Live session without 3D acceleration | Software fallback session (automated VM test) |
+| UEFI (OVMF), empty 30 GB virtio disk, erase disk, ext4, Raze Desktop (niri), QEMU/KVM with virgl | Full graphical install of the 1.0.0 ISO; booted from disk without the ISO, logged in, network, `rix install`, sudo-rs, services, reboot, persistence, poweroff verified |
+| Live ISO and installed system without 3D acceleration | Software fallback session (sway + pixman) with waybar and Calamares |
 | BIOS/legacy boot, manual partitioning, dual boot, other desktops, real hardware | **Not tested for 1.0** |

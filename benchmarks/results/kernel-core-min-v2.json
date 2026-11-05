@@ -1,0 +1,175 @@
+{
+  "runs": {
+    "r6-init": [
+      {
+        "init": "r6-init",
+        "wall_to_selftest_s": 1.59,
+        "services_started_ms": 188.9,
+        "pid1_start_ms": 169.818,
+        "pid1_to_services_ms": 19.082,
+        "supervision_procs": 2,
+        "supervision_rss_kib": 1844,
+        "supervision_pss_kib": 1832,
+        "mem_used_kib": 35280,
+        "processes": 83
+      },
+      {
+        "init": "r6-init",
+        "wall_to_selftest_s": 1.591,
+        "services_started_ms": 182.25,
+        "pid1_start_ms": 163.289,
+        "pid1_to_services_ms": 18.961,
+        "supervision_procs": 2,
+        "supervision_rss_kib": 1760,
+        "supervision_pss_kib": 1748,
+        "mem_used_kib": 34560,
+        "processes": 84
+      },
+      {
+        "init": "r6-init",
+        "wall_to_selftest_s": 1.621,
+        "services_started_ms": 186.402,
+        "pid1_start_ms": 168.827,
+        "pid1_to_services_ms": 17.575,
+        "supervision_procs": 2,
+        "supervision_rss_kib": 1784,
+        "supervision_pss_kib": 1772,
+        "mem_used_kib": 40532,
+        "processes": 82
+      },
+      {
+        "init": "r6-init",
+        "wall_to_selftest_s": 1.615,
+        "services_started_ms": 188.064,
+        "pid1_start_ms": 169.329,
+        "pid1_to_services_ms": 18.735,
+        "supervision_procs": 2,
+        "supervision_rss_kib": 1780,
+        "supervision_pss_kib": 1768,
+        "mem_used_kib": 35200,
+        "processes": 83
+      },
+      {
+        "init": "r6-init",
+        "wall_to_selftest_s": 1.624,
+        "services_started_ms": 189.429,
+        "pid1_start_ms": 170.046,
+        "pid1_to_services_ms": 19.383,
+        "supervision_procs": 2,
+        "supervision_rss_kib": 1804,
+        "supervision_pss_kib": 1792,
+        "mem_used_kib": 33660,
+        "processes": 82
+      },
+      {
+        "init": "r6-init",
+        "wall_to_selftest_s": 1.598,
+        "services_started_ms": 180.763,
+        "pid1_start_ms": 163.761,
+        "pid1_to_services_ms": 17.002,
+        "supervision_procs": 2,
+        "supervision_rss_kib": 1804,
+        "supervision_pss_kib": 1792,
+        "mem_used_kib": 34648,
+        "processes": 82
+      },
+      {
+        "init": "r6-init",
+        "wall_to_selftest_s": 1.617,
+        "services_started_ms": 189.309,
+        "pid1_start_ms": 170.105,
+        "pid1_to_services_ms": 19.204,
+        "supervision_procs": 2,
+        "supervision_rss_kib": 1740,
+        "supervision_pss_kib": 1728,
+        "mem_used_kib": 36300,
+        "processes": 82
+      },
+      {
+        "init": "r6-init",
+        "wall_to_selftest_s": 1.637,
+        "services_started_ms": 183.09,
+        "pid1_start_ms": 168.39,
+        "pid1_to_services_ms": 14.7,
+        "supervision_procs": 2,
+        "supervision_rss_kib": 1804,
+        "supervision_pss_kib": 1792,
+        "mem_used_kib": 35208,
+        "processes": 83
+      },
+      {
+        "init": "r6-init",
+        "wall_to_selftest_s": 1.609,
+        "services_started_ms": 189.285,
+        "pid1_start_ms": 171.513,
+        "pid1_to_services_ms": 17.772,
+        "supervision_procs": 2,
+        "supervision_rss_kib": 1800,
+        "supervision_pss_kib": 1788,
+        "mem_used_kib": 34544,
+        "processes": 82
+      },
+      {
+        "init": "r6-init",
+        "wall_to_selftest_s": 1.616,
+        "services_started_ms": 195.527,
+        "pid1_start_ms": 175.361,
+        "pid1_to_services_ms": 20.166,
+        "supervision_procs": 2,
+        "supervision_rss_kib": 1772,
+        "supervision_pss_kib": 1760,
+        "mem_used_kib": 34680,
+        "processes": 82
+      }
+    ]
+  },
+  "summary": {
+    "r6-init": {
+      "pid1_to_services_ms": {
+        "median": 18.85,
+        "mean": 18.26,
+        "stdev": 1.57,
+        "min": 14.7,
+        "max": 20.166
+      },
+      "services_started_ms": {
+        "median": 188.48,
+        "mean": 187.3,
+        "stdev": 4.35,
+        "min": 180.763,
+        "max": 195.527
+      },
+      "supervision_rss_kib": {
+        "median": 1792.0,
+        "mean": 1789.2,
+        "stdev": 28.79,
+        "min": 1740,
+        "max": 1844
+      },
+      "supervision_pss_kib": {
+        "median": 1780.0,
+        "mean": 1777.2,
+        "stdev": 28.79,
+        "min": 1728,
+        "max": 1832
+      },
+      "supervision_procs": {
+        "median": 2.0,
+        "mean": 2,
+        "stdev": 0.0,
+        "min": 2,
+        "max": 2
+      },
+      "mem_used_kib": {
+        "median": 34940.0,
+        "mean": 35461.2,
+        "stdev": 1907.62,
+        "min": 33660,
+        "max": 40532
+      }
+    },
+    "retries": {
+      "r6-init": 0
+    }
+  }
+}

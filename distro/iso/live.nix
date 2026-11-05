@@ -11,9 +11,6 @@ let
       QT_QPA_PLATFORM="wayland;xcb" \
       ${calamares-raze}/bin/calamares "$@"
   '';
-  # The reference installed system (default desktop). Shipping its closure in the ISO
-  # lets the default installation complete offline.
-  reference = razeSelf.nixosConfigurations.raze-desktop.config.system.build.toplevel;
 in
 {
   imports = [ "${modulesPath}/installer/cd-dvd/installation-cd-base.nix" ];
@@ -25,10 +22,13 @@ in
   isoImage = {
     volumeID = "RAZE_${lib.replaceStrings [ "." ] [ "_" ] razeVersion}";
     appendToMenuLabel = " Live";
-    # xz: zstd -15 produced a 2.40 GB image, over GitHub's 2 GiB release asset limit.
-    # xz decompresses more slowly, which only affects the live session.
-    squashfsCompression = "xz -Xdict-size 100%";
-    storeContents = [ reference razeSelf.inputs.nixpkgs.outPath ];
+    # xz + x86 BCJ filter: zstd -15 produced 2.40 GB, over GitHub's 2 GiB release
+    # asset limit. xz decompresses more slowly, which only affects the live session.
+    squashfsCompression = "xz -Xdict-size 100% -Xbcj x86";
+    # The live system already contains the default desktop's packages, which the
+    # installer copies to the target. A separate reference system was dropped: its
+    # unique part was mostly an initrd that installs rebuild for their own hardware.
+    storeContents = [ razeSelf.inputs.nixpkgs.outPath ];
     includeSystemBuildDependencies = false;
     splashImage = "${pkgs.raze-branding}/share/backgrounds/raze/wallpaper-1080.png";
     efiSplashImage = "${pkgs.raze-branding}/share/backgrounds/raze/wallpaper-1080.png";
@@ -54,13 +54,10 @@ in
     launcher
     calamares-raze
     pkgs.raze-calamares-extensions
-    pkgs.glibcLocales
-    pkgs.gparted
   ];
   # Calamares / kpmcore
   security.polkit.enable = true;
   programs.partition-manager.enable = true;
-  i18n.supportedLocales = [ "all" ];
 
   # VM guest helpers for the most common test environments.
   services.qemuGuest.enable = true;

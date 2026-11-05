@@ -14,7 +14,10 @@ Metrics per boot:
   supervision_procs     number of those processes
   mem_used_kib          MemTotal - MemAvailable after boot
 
-Usage: benchmarks/core-init.py IMAGE_DIR [--runs N] [--json OUT]
+Usage: benchmarks/core-init.py IMAGE_DIR [--runs N] [--json OUT] [--inits r6-init,s6-init]
+
+pid1_start_ms (CLOCK_BOOTTIME when PID 1 starts) doubles as the kernel boot time,
+which is how the generic and Raze Minimal kernels are compared.
 """
 
 import argparse
@@ -86,9 +89,11 @@ def main():
     ap.add_argument("image")
     ap.add_argument("--runs", type=int, default=10)
     ap.add_argument("--json")
+    ap.add_argument("--inits", default="r6-init,s6-init", help="comma-separated PID 1 programs to compare")
     a = ap.parse_args()
-    results = {"r6-init": [], "s6-init": []}
-    retries = {"r6-init": 0, "s6-init": 0}
+    inits = a.inits.split(",")
+    results = {i: [] for i in inits}
+    retries = {i: 0 for i in inits}
     # Interleave runs so drift on the host affects both equally.
     for i in range(a.runs):
         for init in results:

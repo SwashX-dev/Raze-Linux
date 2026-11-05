@@ -15,7 +15,9 @@ let
       cp -r modules/. $out/lib/calamares/modules/
       cp -r branding/. $out/share/calamares/branding/
       substituteInPlace $out/etc/calamares/settings.conf --subst-var out
-      substituteInPlace $out/etc/calamares/modules/locale.conf --replace-fail @locales@ ${glibcLocales}
+      # Only the list of supported locales is needed, not the 220 MiB locale archive.
+      install -Dm644 ${glibcLocales}/share/i18n/SUPPORTED $out/share/raze/SUPPORTED
+      substituteInPlace $out/etc/calamares/modules/locale.conf --replace-fail @locales@/share/i18n/SUPPORTED $out/share/raze/SUPPORTED
       substituteInPlace $out/share/calamares/branding/raze/branding.desc --replace-fail @version@ ${version}
       b=$out/share/calamares/branding/raze
       cp ${raze-branding}/share/pixmaps/raze-logo.svg $b/logo.svg

@@ -1,0 +1,154 @@
+{
+  "release": "1.0.0",
+  "iso_sha256": "51412a1d886aa91349a94306d85746476d21b2a651a391d8c906da99b0698188",
+  "iso_bytes": 2105671680,
+  "date": "2026-11-05",
+  "tests": [
+    {
+      "name": "r6 unit tests",
+      "category": "rust",
+      "environment": "host + Nix sandbox (glibc, musl static)",
+      "result": "pass",
+      "duration_s": 0.22,
+      "details": "14 tests: config validation, dependency graph, waves, cycles, log rotation, kthread detection"
+    },
+    {
+      "name": "r6 end-to-end tests",
+      "category": "rust",
+      "environment": "host (bash and busybox ash as /bin/sh) + Nix sandbox + GitHub Actions",
+      "result": "pass",
+      "duration_s": 1.1,
+      "details": "18 tests with real binaries incl. PID 1 stages and supervisor crash recovery"
+    },
+    {
+      "name": "rix unit + Nix compatibility tests",
+      "category": "rust",
+      "environment": "host + Nix sandbox + GitHub Actions",
+      "result": "pass",
+      "duration_s": 0.1,
+      "details": "16 tests; NAR hashes compared with nix hash path"
+    },
+    {
+      "name": "checks.core-boot (r6 as PID 1)",
+      "category": "system",
+      "environment": "QEMU/KVM 2 vCPU 256 MiB, local + GitHub Actions",
+      "result": "pass",
+      "duration_s": 5,
+      "details": "services activated, SIGKILLed service restarted, DHCP, r6 logs, poweroff"
+    },
+    {
+      "name": "checks.desktop (NixOS VM test)",
+      "category": "system",
+      "environment": "NixOS test driver, VM without 3D, local + GitHub Actions",
+      "result": "pass",
+      "duration_s": 19,
+      "details": "sudo-rs auth (accept+reject), branding, dbus-broker, zram, NetworkManager, greetd autologin, software fallback session, waybar/swaybg, rix hash/verify == nix"
+    },
+    {
+      "name": "Live ISO boot with 3D (virgl)",
+      "category": "installer",
+      "environment": "QEMU 11.1.2/KVM on AMD Ryzen 5 7235HS host, q35, OVMF (UEFI), 4 vCPU, 4 GiB, virtio disk/net, virtio-vga-gl",
+      "result": "pass",
+      "details": "niri session, waybar, Calamares auto-start; raze-gpu-check detects virgl"
+    },
+    {
+      "name": "Live ISO boot without 3D",
+      "category": "installer",
+      "environment": "QEMU 11.1.2/KVM on AMD Ryzen 5 7235HS host, q35, OVMF (UEFI), 4 vCPU, 4 GiB, virtio disk/net, virtio-vga",
+      "result": "pass",
+      "duration_s": 12.47,
+      "details": "raze-gpu-check -> software; sway+pixman session with waybar and Calamares"
+    },
+    {
+      "name": "Calamares graphical installation, empty disk, UEFI, erase disk, ext4, default desktop",
+      "category": "installer",
+      "environment": "QEMU 11.1.2/KVM on AMD Ryzen 5 7235HS host, q35, OVMF (UEFI), 4 vCPU, 4 GiB, virtio disk/net",
+      "result": "pass",
+      "duration_s": 448,
+      "details": "All pages driven over QMP; 'All done.'; /var/log/raze-install.log ends with 'nixos-install exited with 0'"
+    },
+    {
+      "name": "Installed system boots from disk without ISO",
+      "category": "installer",
+      "environment": "QEMU 11.1.2/KVM on AMD Ryzen 5 7235HS host, q35, OVMF (UEFI), 4 vCPU, 4 GiB, virtio disk/net",
+      "result": "pass",
+      "duration_s": 4.75,
+      "details": "systemd-boot 'Raze Linux' entry; graphical.target in 4.752 s"
+    },
+    {
+      "name": "User login on installed system",
+      "category": "installer",
+      "environment": "QEMU 11.1.2/KVM on AMD Ryzen 5 7235HS host, q35, OVMF (UEFI), 4 vCPU, 4 GiB, virtio disk/net",
+      "result": "pass",
+      "details": "tuigreet login as the user created in Calamares; niri session"
+    },
+    {
+      "name": "Terminal, networking on installed system",
+      "category": "installer",
+      "environment": "QEMU 11.1.2/KVM on AMD Ryzen 5 7235HS host, q35, OVMF (UEFI), 4 vCPU, 4 GiB, virtio disk/net",
+      "result": "pass",
+      "details": "foot opens; curl https://cache.nixos.org -> HTTP/2 200"
+    },
+    {
+      "name": "Package installation (rix install hello)",
+      "category": "installer",
+      "environment": "QEMU 11.1.2/KVM on AMD Ryzen 5 7235HS host, q35, OVMF (UEFI), 4 vCPU, 4 GiB, virtio disk/net",
+      "result": "pass",
+      "details": "delegated to nix profile add; hello runs; rix list/generations native"
+    },
+    {
+      "name": "Service management on installed system",
+      "category": "installer",
+      "environment": "QEMU 11.1.2/KVM on AMD Ryzen 5 7235HS host, q35, OVMF (UEFI), 4 vCPU, 4 GiB, virtio disk/net",
+      "result": "pass",
+      "details": "NetworkManager, greetd, dbus-broker, nix-daemon active; systemctl is-system-running = running"
+    },
+    {
+      "name": "sudo-rs authentication",
+      "category": "installer",
+      "environment": "QEMU 11.1.2/KVM on AMD Ryzen 5 7235HS host, q35, OVMF (UEFI), 4 vCPU, 4 GiB, virtio disk/net",
+      "result": "pass",
+      "details": "correct password -> root; wrong password rejected"
+    },
+    {
+      "name": "Reboot and persistence",
+      "category": "installer",
+      "environment": "QEMU 11.1.2/KVM on AMD Ryzen 5 7235HS host, q35, OVMF (UEFI), 4 vCPU, 4 GiB, virtio disk/net",
+      "result": "pass",
+      "details": "sudo reboot; marker file and installed package present after reboot"
+    },
+    {
+      "name": "Installed system without 3D",
+      "category": "installer",
+      "environment": "QEMU 11.1.2/KVM on AMD Ryzen 5 7235HS host, q35, OVMF (UEFI), 4 vCPU, 4 GiB, virtio disk/net, virtio-vga",
+      "result": "pass",
+      "details": "raze-gpu-check: llvmpipe -> sway with WLR_RENDERER=pixman"
+    },
+    {
+      "name": "Shutdown (poweroff) of installed system",
+      "category": "installer",
+      "environment": "QEMU 11.1.2/KVM on AMD Ryzen 5 7235HS host, q35, OVMF (UEFI), 4 vCPU, 4 GiB, virtio disk/net",
+      "result": "pass",
+      "details": "sudo poweroff; VM exited"
+    },
+    {
+      "name": "r6 boot entry on installed system",
+      "category": "system",
+      "environment": "-",
+      "result": "not run",
+      "details": "Builds and validates; not boot-tested in 1.0"
+    },
+    {
+      "name": "BIOS install, manual partitioning, dual boot, non-default desktops, real hardware",
+      "category": "installer",
+      "environment": "-",
+      "result": "not run",
+      "details": "Not tested in 1.0"
+    }
+  ],
+  "summary": {
+    "pass": 17,
+    "fail": 0,
+    "not_run": 2
+  }
+}

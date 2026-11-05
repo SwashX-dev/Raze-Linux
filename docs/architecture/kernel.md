@@ -30,7 +30,7 @@ profiles below are configuration choices and boot parameters, not patches.
 | `generic` (default) | 7.3.1 (nixpkgs build) | `quiet loglevel=3` | Installed and boot-tested |
 | `performance` | 7.3.1 (same binary) | `preempt=full`, sched_ext `scx_bpfland`, autogroup, bounded dirty bytes | Builds; not benchmarked on desktop workloads yet |
 | `legacy` | 6.18 LTS (6.18.60) | `transparent_hugepage=madvise` | Builds; no legacy hardware tested |
-| `minimal` | 7.3.1, **custom config** | `x86_64_defconfig` + `kvm_guest.config` + [`config/minimal-kvm.config`](../../kernel/config/minimal-kvm.config); virtio built in | QEMU/KVM guests only; boot-tested with Raze Core |
+| `minimal` | 7.3.1, **custom config** | `x86_64_defconfig` + `kvm_guest.config` + [`config/minimal-kvm.config`](../../kernel/config/minimal-kvm.config); virtio built in, RAID6 benchmark/netconsole/DEBUG_WX off, ATA modular | QEMU/KVM guests only; boot-tested with Raze Core: 16 % faster kernel boot and 30 % less memory than generic (see benchmarks). Not tested as an installed desktop kernel. |
 
 The minimal config build fails if any requested option does not survive Kconfig
 dependency resolution (it caught `CGROUP_BPF` needing `BPF_SYSCALL`).
