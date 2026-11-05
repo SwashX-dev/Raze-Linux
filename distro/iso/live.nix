@@ -54,6 +54,15 @@ in
 
   environment.systemPackages = [
     launcher
+    # Replaces Calamares' own entry (plain `pkexec calamares`) with the Raze launcher.
+    (lib.hiPrio (pkgs.makeDesktopItem {
+      name = "calamares";
+      desktopName = "Install Raze Linux";
+      comment = "Install Raze Linux on this computer";
+      exec = "calamares-raze-launch";
+      icon = "raze-logo";
+      categories = [ "System" ];
+    }))
     calamares-raze
     pkgs.raze-calamares-extensions
   ];
@@ -64,6 +73,19 @@ in
   # VM guest helpers for the most common test environments, as r6 services (they
   # idle when the VM does not provide the device).
   raze.r6.services = {
+    # Register the ISO's store in the (tmpfs) Nix database, as NixOS's systemd unit
+    # does. nixos-install copies the system from this store; without registration it
+    # would try to download or build everything.
+    nix-load-db = {
+      description = "Register the live store in the Nix database";
+      type = "oneshot";
+      command = [ "${pkgs.runtimeShell}" "-c" ''
+        ${lib.getExe' config.nix.package.out "nix-store"} --load-db < /nix/store/nix-path-registration
+        touch /etc/NIXOS
+        ${lib.getExe' config.nix.package.out "nix-env"} -p /nix/var/nix/profiles/system --set /run/current-system
+      '' ];
+    };
+    nix-daemon.depends = [ "nix-load-db" ];
     qemu-ga = {
       description = "QEMU guest agent";
       depends = [ "udev-settle" ];

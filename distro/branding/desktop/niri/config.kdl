@@ -46,7 +46,6 @@ spawn-at-startup "mako"
 spawn-at-startup "swaybg" "-m" "fill" "-i" "/run/current-system/sw/share/backgrounds/raze/wallpaper.png"
 spawn-at-startup "lxqt-policykit-agent"
 spawn-at-startup "raze-session-ready"
-spawn-at-startup "raze-session-autostart"
 
 window-rule {
     geometry-corner-radius 6

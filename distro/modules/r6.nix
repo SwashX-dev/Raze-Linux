@@ -117,6 +117,11 @@ in
     {
       warnings = lib.optional cfg.bootEntry.enable
         "raze.r6.bootEntry.enable has no effect since Raze 1.1: r6 is PID 1 by default (raze.init = \"${config.raze.init}\"). Remove the line from configuration.nix.";
+    }
+
+    (lib.mkIf useR6 {
+      # Only r6 systems get (and validate) an r6 service set; with raze.init =
+      # "systemd" the r6 services other modules declare are inert.
       environment.etc."r6/services".source = serviceDir "r6-services" cfg.services;
       environment.etc."r6/user-services".source = serviceDir "r6-user-services" cfg.userServices;
       environment.etc."r6/r6.toml".source = toml.generate "r6.toml" {
@@ -125,9 +130,7 @@ in
         log_keep = 3;
         shutdown_timeout_ms = 15000;
       };
-    }
 
-    (lib.mkIf useR6 {
       # NixOS's switch-to-configuration drives systemd over D-Bus; r6 systems get their
       # own (boot loader + activation script + r6 reload/restart of changed services),
       # so `nixos-rebuild switch` and `rix system switch` work under r6.

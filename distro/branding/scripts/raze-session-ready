@@ -18,4 +18,6 @@ elif command -v systemctl > /dev/null; then
         wl-paste --watch cliphist store &
     fi
 fi
+# Live ISO: open the installer once per session.
+raze-session-autostart > /dev/null 2>&1 &
 exit 0
