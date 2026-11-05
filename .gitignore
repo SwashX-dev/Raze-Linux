@@ -1,0 +1,9 @@
+/target
+rift/target
+result
+result-*
+*.qcow2
+*.iso
+/build/
+/out/
+.direnv/
