@@ -3,7 +3,7 @@
 ## Boot an older generation
 
 Every `rix system switch` / `nixos-rebuild` creates a new system generation. At the
-boot menu (systemd-boot: press a key during the 2 s timeout; GRUB: menu) choose an
+boot menu (GRUB; systemd-boot on EFI systems installed with 1.0: press a key during the 2 s timeout) choose an
 older entry. To make it the default again:
 
 ```bash
@@ -32,16 +32,22 @@ sudo nixos-install --root /mnt --flake /mnt/etc/nixos#raze --no-channel-copy
 
 ## Emergency shell
 
-- systemd entry: add `systemd.unit=rescue.target` to the kernel command line.
-- r6 entry: add `r6.emergency` to get a root shell before services start; `r6-init`
-  also opens an emergency shell when the supervisor fails five times within a
-  minute.
+- Add `r6.emergency` to the kernel command line (`e` in the GRUB menu) for a root
+  shell before services start; `r6-init` also opens an emergency shell when the
+  supervisor fails five times within a minute. `r6 status` and `r6 logs <service>`
+  show what failed.
+- Systems with `raze.init = "systemd"`: `systemd.unit=rescue.target`.
 
-## Software-rendered session
+## Graphical session problems
 
-If the graphical session is black or very slow, force a mode at the greeter by
-changing the command (F2) to `env RAZE_SESSION=software raze-session` or
-`env RAZE_SESSION=niri raze-session`.
+- Rift picks its renderer automatically (GLES with a 3D-capable GPU, pixman
+  otherwise). To force software rendering, change the greeter command (F2) to
+  `env RIFT_RENDERER=pixman raze-session`. Rift's log is
+  `~/.local/state/rift/rift.log` (`rift.log.old`: the previous session);
+  `rift msg config-error` reports configuration problems.
+- Rift Shell missing (no panel): `r6 --user status rift-shell`, `r6 --user restart rift-shell`.
+- niri sessions: `env RAZE_SESSION=software raze-session` forces the sway/pixman
+  fallback.
 
 ## Installer logs
 

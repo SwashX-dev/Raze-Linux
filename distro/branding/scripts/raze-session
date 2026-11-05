@@ -38,7 +38,11 @@ run_software() {
 case "$desktop" in
     rift)
         export XDG_CURRENT_DESKTOP=rift
-        rift
+        # Keep the compositor's log (and the previous session's) for troubleshooting.
+        logdir=${XDG_STATE_HOME:-$HOME/.local/state}/rift
+        mkdir -p "$logdir"
+        [ -f "$logdir/rift.log" ] && mv -f "$logdir/rift.log" "$logdir/rift.log.old"
+        rift 2> "$logdir/rift.log"
         ;;
     niri)
         if [ "$mode" = software ] || { [ "$mode" = auto ] && ! raze-gpu-check; }; then

@@ -30,8 +30,9 @@ cat > /mnt/etc/nixos/configuration.nix <<'NIX'
 { ... }:
 {
   raze.profile = "desktop";
-  raze.desktop = "niri";
-  boot.loader.systemd-boot.enable = true;
+  raze.desktop = "rift";
+  raze.kernel.profile = "performance";
+  boot.loader.grub = { enable = true; efiSupport = true; device = "nodev"; };
   boot.loader.efi.canTouchEfiVariables = true;
   networking.hostName = "raze";
   users.users.me = { isNormalUser = true; extraGroups = [ "wheel" "networkmanager" "video" ]; };
@@ -49,7 +50,8 @@ reboot
 | Option | Values |
 |---|---|
 | `raze.profile` | `minimal`, `desktop`, `custom`, `development` |
-| `raze.desktop` | `niri`, `hyprland`, `dwl`, `xfce`, `lxqt`, `plasma`, `gnome`, `dwm`, `none` |
+| `raze.desktop` | `rift` (default), `niri`, `hyprland`, `dwl`, `xfce`, `lxqt`, `plasma`, `gnome`, `dwm`, `none` |
 | `raze.kernel.profile` | `generic`, `performance`, `legacy`, `minimal` |
-| `raze.r6.bootEntry.enable` | adds the experimental r6-as-PID-1 boot entry |
+| `raze.init` | `r6` (default) or `systemd` |
+| `raze.r6.services`, `raze.r6.userServices` | extra r6 system / session services (see [r6](../architecture/r6.md)) |
 | `raze.r6.services.<name>` | r6 service definitions (validated at build time) |
