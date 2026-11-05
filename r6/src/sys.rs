@@ -381,6 +381,95 @@ pub fn drop_privileges(groups: &[u32], gid: u32, uid: u32) -> io::Result<()> {
     Ok(())
 }
 
+/// A capability set as the two 32-bit words of the v3 capset ABI.
+#[derive(Clone, Copy)]
+pub struct CapSet([u32; 2]);
+
+impl CapSet {
+    pub fn new(caps: &[u32]) -> CapSet {
+        let mut w = [0u32; 2];
+        for &c in caps {
+            if c < 64 {
+                w[(c / 32) as usize] |= 1 << (c % 32);
+            }
+        }
+        CapSet(w)
+    }
+}
+
+/// Keep permitted capabilities across setuid (call before drop_privileges).
+pub fn keep_caps() -> io::Result<()> {
+    cvt(unsafe { libc::prctl(libc::PR_SET_KEEPCAPS, 1, 0, 0, 0) }).map(|_| ())
+}
+
+/// After setuid: make `caps` effective, permitted, inheritable and ambient, so they
+/// survive execve of a non-setuid program. Async-signal-safe (raw syscalls only).
+pub fn raise_ambient(caps: &CapSet, list: &[u32]) -> io::Result<()> {
+    #[repr(C)]
+    struct Header {
+        version: u32,
+        pid: i32,
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct Data {
+        effective: u32,
+        permitted: u32,
+        inheritable: u32,
+    }
+    let hdr = Header {
+        version: 0x2008_0522,
+        pid: 0,
+    };
+    let data = [
+        Data {
+            effective: caps.0[0],
+            permitted: caps.0[0],
+            inheritable: caps.0[0],
+        },
+        Data {
+            effective: caps.0[1],
+            permitted: caps.0[1],
+            inheritable: caps.0[1],
+        },
+    ];
+    cvt(unsafe {
+        libc::syscall(libc::SYS_capset, &hdr as *const Header, data.as_ptr()) as libc::c_int
+    })?;
+    for &c in list {
+        cvt(unsafe {
+            libc::prctl(
+                libc::PR_CAP_AMBIENT,
+                libc::PR_CAP_AMBIENT_RAISE,
+                c as libc::c_ulong,
+                0,
+                0,
+            )
+        })?;
+    }
+    Ok(())
+}
+
+/// Create `path` (mode `mode`) if missing and hand it to uid/gid.
+pub fn ensure_owned_dir(
+    path: &std::path::Path,
+    mode: u32,
+    owner: Option<(u32, u32)>,
+) -> io::Result<()> {
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    if !path.is_dir() {
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(mode)
+            .create(path)?;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))?;
+    }
+    if let Some((uid, gid)) = owner {
+        std::os::unix::fs::chown(path, Some(uid), Some(gid))?;
+    }
+    Ok(())
+}
+
 /// Process start time (clock ticks since boot, field 22 of /proc/<pid>/stat).
 /// Together with the pid this identifies a process across pid reuse.
 pub fn proc_starttime(pid: i32) -> Option<u64> {
@@ -389,14 +478,15 @@ pub fn proc_starttime(pid: i32) -> Option<u64> {
     rest.split_whitespace().nth(19)?.parse().ok()
 }
 
-/// True if any userspace process other than the caller and PID 1 is still alive.
-/// Kernel threads (PF_KTHREAD) are ignored; zombies count until they are reaped.
-pub fn user_processes_remaining() -> bool {
+/// PIDs of userspace processes other than the caller and PID 1 (kernel threads,
+/// flagged PF_KTHREAD, are excluded; zombies are included until reaped).
+pub fn user_processes() -> Vec<i32> {
     const PF_KTHREAD: u64 = 0x0020_0000;
     let me = getpid();
     let Ok(rd) = std::fs::read_dir("/proc") else {
-        return false;
+        return vec![];
     };
+    let mut out = Vec::new();
     for e in rd.flatten() {
         let Some(pid) = e.file_name().to_str().and_then(|s| s.parse::<i32>().ok()) else {
             continue;
@@ -417,10 +507,15 @@ pub fn user_processes_remaining() -> bool {
             .and_then(|f| f.parse().ok())
             .unwrap_or(0);
         if flags & PF_KTHREAD == 0 {
-            return true;
+            out.push(pid);
         }
     }
-    false
+    out
+}
+
+/// True if any userspace process other than the caller and PID 1 is still alive.
+pub fn user_processes_remaining() -> bool {
+    !user_processes().is_empty()
 }
 
 /// Set the file mode creation mask. Async-signal-safe.
@@ -469,6 +564,19 @@ impl OomAdjust {
                 libc::close(fd);
             }
         }
+    }
+}
+
+/// Write one message to the kernel log (/dev/kmsg) with a syslog priority, so it
+/// shows up in `dmesg` and on the console only when the kernel log level allows it
+/// (keeping the login screen clean). Returns false if /dev/kmsg is unavailable.
+pub fn kmsg(priority: u8, tag: &str, msg: &str) -> bool {
+    use std::io::Write;
+    match std::fs::OpenOptions::new().write(true).open("/dev/kmsg") {
+        Ok(mut f) => f
+            .write_all(format!("<{priority}>{tag}: {msg}\n").as_bytes())
+            .is_ok(),
+        Err(_) => false,
     }
 }
 

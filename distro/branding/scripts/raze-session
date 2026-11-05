@@ -1,13 +1,64 @@
 #!/bin/sh
-# Raze desktop session launcher.
+# Raze desktop session launcher, run by greetd as the logged-in user.
 #
-# niri needs a hardware-accelerated GPU: it refuses software EGL renderers and shows
-# a black screen without one (common in VMs without 3D acceleration). In that case
-# start a sway session using wlroots' pixman (CPU) renderer with the same Raze
-# tooling and keybindings. Set RAZE_SESSION=niri|software to force either.
-mode=${RAZE_SESSION:-auto}
-if [ "$mode" = niri ] || { [ "$mode" = auto ] && raze-gpu-check; }; then
-    exec niri-session
+# On r6 systems (r6-init is PID 1) it starts the per-user supervisor r6-user for the
+# session services (D-Bus session bus, PipeWire, WirePlumber, ...), runs the
+# compositor in the foreground, and stops the user services on logout. On systemd
+# systems it defers to the compositor's own systemd session integration.
+#
+# Compositor: RAZE_DESKTOP (default from /etc/raze-release). niri needs a
+# hardware-accelerated GPU; without one the sway/pixman session is used.
+# RAZE_SESSION=niri|software forces a mode.
+
+desktop=${RAZE_DESKTOP:-$(sed -n 's/^RAZE_DESKTOP=//p' /etc/raze-release 2>/dev/null)}
+desktop=${desktop:-niri}
+export XDG_SESSION_TYPE=wayland
+
+r6_session=false
+if [ "$(cat /proc/1/comm 2>/dev/null)" = r6-init ] && [ -n "$XDG_RUNTIME_DIR" ]; then
+    r6_session=true
+    export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+    r6-user > "$XDG_RUNTIME_DIR/r6-user.log" 2>&1 &
+    user_pid=$!
+    i=0
+    while [ ! -S "$XDG_RUNTIME_DIR/r6/control.sock" ] && [ $i -lt 250 ]; do
+        sleep 0.02
+        i=$((i + 1))
+    done
+    # Blocks until the session bus is ready, so the compositor inherits a working bus.
+    r6 --user start dbus > /dev/null 2>&1
 fi
-export WLR_RENDERER=pixman WLR_NO_HARDWARE_CURSORS=1 XDG_CURRENT_DESKTOP=sway RAZE_SOFTWARE_SESSION=1
-exec sway --config /etc/sway/raze.conf
+
+mode=${RAZE_SESSION:-auto}
+run_software() {
+    export WLR_RENDERER=pixman WLR_NO_HARDWARE_CURSORS=1 XDG_CURRENT_DESKTOP=sway RAZE_SOFTWARE_SESSION=1
+    sway --config /etc/sway/raze.conf
+}
+
+case "$desktop" in
+    rift)
+        export XDG_CURRENT_DESKTOP=rift
+        rift
+        ;;
+    niri)
+        if [ "$mode" = software ] || { [ "$mode" = auto ] && ! raze-gpu-check; }; then
+            run_software
+        elif $r6_session; then
+            export XDG_CURRENT_DESKTOP=niri
+            niri
+        else
+            exec niri-session
+        fi
+        ;;
+    *)
+        echo "raze-session: unknown desktop '$desktop'" >&2
+        false
+        ;;
+esac
+status=$?
+
+if $r6_session; then
+    r6 --user shutdown > /dev/null 2>&1
+    wait "$user_pid"
+fi
+exit $status

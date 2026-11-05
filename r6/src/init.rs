@@ -25,7 +25,11 @@ const DEFAULT_PATH: &str =
     "/run/current-system/sw/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
 
 fn log(msg: &str) {
-    eprintln!("r6-init: {msg}");
+    // As PID 1, prefer the kernel log (dmesg, serial console) over the VT a greeter
+    // may be drawing on.
+    if !(crate::sys::getpid() == 1 && crate::sys::kmsg(4, "r6-init", msg)) {
+        eprintln!("r6-init: {msg}");
+    }
 }
 
 struct Init {
@@ -132,6 +136,45 @@ fn mount_api_filesystems() {
             }
         }
     }
+}
+
+/// A systemd-based initramfs hands over with `switch-root`, which leaves the processes
+/// it started (systemd-journald, …) running and its "systemd is PID 1" marker in
+/// /run/systemd/system. Neither is true any more: stop the processes and remove the
+/// marker (libraries and dbus-daemon use it to decide whether to talk to systemd).
+/// The rest of /run/systemd stays: elogind keeps its compatibility state there.
+fn cleanup_initramfs_leftovers() {
+    let _ = std::fs::remove_dir_all("/run/systemd/system");
+    let leftovers = sys::user_processes();
+    if leftovers.is_empty() {
+        return;
+    }
+    let names: Vec<String> = leftovers
+        .iter()
+        .map(|p| {
+            std::fs::read_to_string(format!("/proc/{p}/comm"))
+                .unwrap_or_default()
+                .trim()
+                .to_string()
+        })
+        .collect();
+    log(&format!(
+        "stopping {} process(es) left by the initramfs: {}",
+        leftovers.len(),
+        names.join(" ")
+    ));
+    for &p in &leftovers {
+        let _ = sys::kill(p, libc::SIGTERM);
+    }
+    let deadline = Instant::now() + Duration::from_millis(1000);
+    while Instant::now() < deadline && sys::user_processes_remaining() {
+        while sys::reap_any().is_some() {}
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    for p in sys::user_processes() {
+        let _ = sys::kill(p, libc::SIGKILL);
+    }
+    while sys::reap_any().is_some() {}
 }
 
 fn spawn_with_reset(path: &Path, args: &[&str]) -> std::io::Result<i32> {
@@ -366,12 +409,15 @@ pub fn main() -> ! {
     // SAFETY: single-threaded at this point.
     std::env::set_var("R6_INIT_START_MS", format!("{start_ms:.3}"));
     if pid1 {
+        // SAFETY: single-threaded at this point.
+        std::env::set_var("R6_KMSG", "1");
         sys::ensure_stdio();
         unsafe { libc::umask(0o022) };
         if std::env::var_os("PATH").is_none() {
             std::env::set_var("PATH", DEFAULT_PATH);
         }
         mount_api_filesystems();
+        cleanup_initramfs_leftovers();
         sys::disable_cad();
         if let Ok(h) = std::fs::read_to_string("/etc/hostname") {
             let h = h.trim();

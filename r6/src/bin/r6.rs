@@ -155,7 +155,36 @@ fn signal_init(sig: i32) -> ! {
     }
 }
 
+/// sysvinit-style entry points: when invoked as `poweroff`, `reboot`, `halt` or
+/// `shutdown` (symlinks installed on r6 systems), act like those commands. elogind
+/// runs these to shut the machine down.
+fn sysvinit_compat() {
+    let argv0 = std::env::args().next().unwrap_or_default();
+    let name = std::path::Path::new(&argv0)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let has = |f: &[&str]| args.iter().any(|a| f.contains(&a.as_str()));
+    let sig = match name {
+        "poweroff" => libc::SIGUSR1,
+        "reboot" => libc::SIGTERM,
+        "halt" if has(&["-p", "--poweroff"]) => libc::SIGUSR1,
+        "halt" => libc::SIGUSR2,
+        "shutdown" if has(&["-r", "--reboot"]) => libc::SIGTERM,
+        "shutdown" if has(&["-H", "--halt"]) => libc::SIGUSR2,
+        "shutdown" if has(&["-c"]) => die("cancelling a scheduled shutdown is not supported"),
+        "shutdown" => libc::SIGUSR1,
+        _ => return,
+    };
+    if has(&["-w", "--wtmp-only", "--help"]) {
+        std::process::exit(0);
+    }
+    signal_init(sig);
+}
+
 fn main() {
+    sysvinit_compat();
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     let mut flag = |f: &str| {
         let had = args.iter().any(|a| a == f);
@@ -321,6 +350,17 @@ fn main() {
                 n = rest.get(pos + 1).and_then(|v| v.parse().ok()).unwrap_or(n);
             }
             let global = r6::config::Global::load(&paths.global_conf).unwrap_or_default();
+            if rest[0] == "r6" {
+                // The supervisor's own messages.
+                let f = paths.run_dir.join("supervisor.log");
+                let text = std::fs::read_to_string(&f)
+                    .unwrap_or_else(|e| die(&format!("{}: {e}", f.display())));
+                let lines: Vec<&str> = text.lines().collect();
+                for l in &lines[lines.len().saturating_sub(n)..] {
+                    println!("{l}");
+                }
+                return;
+            }
             let dir = paths
                 .log_dir_override
                 .clone()

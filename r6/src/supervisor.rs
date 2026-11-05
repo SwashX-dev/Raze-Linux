@@ -135,6 +135,8 @@ pub struct Supervisor {
     extra_env: BTreeMap<String, String>,
     /// No messages at all (tests).
     quiet: bool,
+    /// Messages go to /dev/kmsg (system supervisor under r6-init as PID 1).
+    kmsg: bool,
     /// Per-service progress messages (r6.verbose / R6_VERBOSE).
     verbose: bool,
 }
@@ -185,21 +187,40 @@ impl Supervisor {
             boot_complete_ms: None,
             extra_env: BTreeMap::new(),
             quiet: std::env::var_os("R6_QUIET").is_some(),
+            kmsg: std::env::var_os("R6_KMSG").is_some(),
             verbose: crate::init::verbose(),
         })
     }
 
-    /// Warnings and milestones (failures, boot summary, shutdown).
+    /// Warnings and milestones (failures, boot summary, shutdown). The system
+    /// supervisor (R6_KMSG set by r6-init as PID 1) writes to the kernel log at
+    /// warning level, which keeps them off a console that a greeter is using.
     fn say(&self, msg: &str) {
-        if !self.quiet {
+        if self.quiet {
+            return;
+        }
+        if !(self.kmsg && sys::kmsg(4, "r6", msg)) {
             eprintln!("r6: {msg}");
         }
+        self.remember(msg);
     }
 
     /// Per-service progress, only with r6.verbose.
     fn debug(&self, msg: &str) {
-        if self.verbose && !self.quiet {
+        if self.verbose && !self.quiet && !(self.kmsg && sys::kmsg(6, "r6", msg)) {
             eprintln!("r6: {msg}");
+        }
+    }
+
+    /// Keep the supervisor's own messages in <run_dir>/supervisor.log for `r6 logs r6`.
+    fn remember(&self, msg: &str) {
+        use std::io::Write;
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(self.paths.run_dir.join("supervisor.log"))
+        {
+            let _ = writeln!(f, "[{:>12.6}] {msg}", sys::boottime_ms() / 1000.0);
         }
     }
 
@@ -387,6 +408,25 @@ impl Supervisor {
                 None => return self.on_spawn_error(name, format!("unknown user '{user}'")),
             },
         };
+        // RuntimeDirectory/StateDirectory equivalents, created as root before the fork.
+        let owner = creds.as_ref().map(|(_, gid, uid)| (*uid, *gid));
+        for (base, dir) in [
+            ("/run", &svc.runtime_directory),
+            ("/var/lib", &svc.state_directory),
+        ] {
+            if let Some(d) = dir {
+                let path = std::path::Path::new(base).join(d);
+                if let Err(e) = sys::ensure_owned_dir(&path, 0o755, owner) {
+                    return self.on_spawn_error(name, format!("{}: {e}", path.display()));
+                }
+            }
+        }
+        let caps = (!svc.capabilities.is_empty()).then(|| {
+            (
+                sys::CapSet::new(&svc.capabilities),
+                svc.capabilities.clone(),
+            )
+        });
         let notify_w = notify_pair.as_ref().map(|(_, w)| w.as_raw_fd());
         let (umask, nofile) = (svc.umask, svc.rlimit_nofile);
         let oom = svc.oom_score_adjust.map(sys::OomAdjust::new);
@@ -410,7 +450,13 @@ impl Supervisor {
                     o.apply();
                 }
                 if let Some((groups, gid, uid)) = &creds {
+                    if caps.is_some() {
+                        sys::keep_caps()?;
+                    }
                     sys::drop_privileges(groups, *gid, *uid)?;
+                    if let Some((set, list)) = &caps {
+                        sys::raise_ambient(set, list)?;
+                    }
                 }
                 Ok(())
             });

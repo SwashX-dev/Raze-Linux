@@ -22,6 +22,8 @@ pub struct Rule {
     pub plus: bool,
     pub boot_only: bool,
     pub ignore_errors: bool,
+    /// `?` on L/C: only act if the link target / copy source exists.
+    pub only_if_source: bool,
     pub path: PathBuf,
     pub mode: Option<Mode>,
     pub user: Option<String>,
@@ -55,44 +57,50 @@ pub struct Report {
 
 pub const DEFAULT_DIRS: [&str; 3] = ["/etc/tmpfiles.d", "/run/tmpfiles.d", "/usr/lib/tmpfiles.d"];
 
-/// Split a line into fields, honouring double quotes and backslash escapes.
+/// Split a line into fields, honouring single and double quotes (NixOS quotes every
+/// field with single quotes) and backslash escapes. The sixth separator ends field
+/// splitting: the argument is the rest of the line, with surrounding quotes removed.
 fn fields(line: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut cur = String::new();
-    let mut in_q = false;
+    let mut quote: Option<char> = None;
     let mut have = false;
     let mut chars = line.chars().peekable();
     while let Some(c) = chars.next() {
         match c {
-            '\\' => {
+            '\\' if quote != Some('\'') => {
                 if let Some(n) = chars.next() {
                     cur.push(n);
                     have = true;
                 }
             }
-            '"' => {
-                in_q = !in_q;
+            '"' | '\'' if quote.is_none() => {
+                quote = Some(c);
                 have = true;
             }
-            c if c.is_whitespace() && !in_q => {
+            c if Some(c) == quote => quote = None,
+            c if c.is_whitespace() && quote.is_none() => {
                 if have {
                     out.push(std::mem::take(&mut cur));
                     have = false;
+                }
+                if out.len() == 6 {
+                    let rest: String = chars.collect();
+                    let rest = rest.trim();
+                    let unquoted = ['\'', '"']
+                        .iter()
+                        .find_map(|q| rest.strip_prefix(*q).and_then(|r| r.strip_suffix(*q)))
+                        .unwrap_or(rest);
+                    if !rest.is_empty() {
+                        out.push(unquoted.to_string());
+                    }
+                    return out;
                 }
             }
             c => {
                 cur.push(c);
                 have = true;
             }
-        }
-        // The argument field is the rest of the line, whitespace included.
-        if out.len() == 6 {
-            let rest: String = chars.collect();
-            let rest = rest.trim_start().to_string();
-            if !rest.is_empty() || have {
-                out.push(if have { cur.clone() + &rest } else { rest });
-            }
-            return out;
         }
     }
     if have {
@@ -201,6 +209,7 @@ pub fn parse_line(
         plus: false,
         boot_only: false,
         ignore_errors: false,
+        only_if_source: false,
         path: PathBuf::new(),
         mode: None,
         user: None,
@@ -213,6 +222,7 @@ pub fn parse_line(
             '+' => rule.plus = true,
             '!' => rule.boot_only = true,
             '-' => rule.ignore_errors = true,
+            '?' => rule.only_if_source = true,
             '=' | '^' | '~' | '$' => {}
             other => return Err(format!("{origin}: unknown modifier '{other}'")),
         }
@@ -501,6 +511,9 @@ fn apply_create(rule: &Rule) -> io::Result<bool> {
                 // Without an argument, link to the same path below /usr/share/factory.
                 None => Path::new("/usr/share/factory").join(p.strip_prefix("/").unwrap_or(p)),
             };
+            if rule.only_if_source && !exists(&target) {
+                return Ok(false);
+            }
             if exists(p) {
                 if fs::read_link(p).map(|t| t == target).unwrap_or(false) || !rule.plus {
                     return Ok(false);
@@ -669,6 +682,54 @@ mod tests {
         assert!(parse_line("d relative", "t", &spec()).is_err());
         assert!(parse_line("d /x 0999", "t", &spec()).is_err());
         assert!(parse_line("d /%Q", "t", &spec()).is_err());
+    }
+
+    #[test]
+    fn parses_nixos_single_quoted_rules() {
+        // Verbatim lines from NixOS-generated tmpfiles.d files.
+        let r = parse_line(
+            "d '/var/cache/tuigreet' - greeter greeter - -",
+            "t",
+            &spec(),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r.path, Path::new("/var/cache/tuigreet"));
+        assert_eq!(r.user.as_deref(), Some("greeter"));
+        assert_eq!(r.argument, None);
+        let r = parse_line(
+            "'L+' '/run/opengl-driver' '-' '-' '-' '-' /nix/store/x-graphics-drivers",
+            "t",
+            &spec(),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!((r.kind, r.plus), ('L', true));
+        assert_eq!(r.path, Path::new("/run/opengl-driver"));
+        assert_eq!(r.mode, None);
+        assert_eq!(r.argument.as_deref(), Some("/nix/store/x-graphics-drivers"));
+        let r = parse_line("'r' '/run/opengl-driver-32' '-' '-' '-' '-' ", "t", &spec())
+            .unwrap()
+            .unwrap();
+        assert_eq!(r.kind, 'r');
+        assert_eq!(r.argument, None);
+        let r = parse_line(
+            "'d' '/etc/NetworkManager/system-connections' '0700' 'root' 'root' '-' ",
+            "t",
+            &spec(),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(r.mode.unwrap().bits, 0o700);
+        let r = parse_line("L? /run/systemd/x   - - - - /run/host/x", "t", &spec())
+            .unwrap()
+            .unwrap();
+        assert!(r.only_if_source);
+        assert_eq!(r.argument.as_deref(), Some("/run/host/x"));
+        let r = parse_line("f /etc/a 0644 - - - 'quoted content'", "t", &spec())
+            .unwrap()
+            .unwrap();
+        assert_eq!(r.argument.as_deref(), Some("quoted content"));
     }
 
     #[test]

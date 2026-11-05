@@ -82,6 +82,10 @@ struct RawService {
     umask: Option<String>,
     rlimit_nofile: Option<u64>,
     oom_score_adjust: Option<i32>,
+    #[serde(default)]
+    capabilities: Vec<String>,
+    runtime_directory: Option<String>,
+    state_directory: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -112,6 +116,12 @@ pub struct Service {
     pub rlimit_nofile: Option<u64>,
     /// Value written to /proc/self/oom_score_adj (-1000..1000).
     pub oom_score_adjust: Option<i32>,
+    /// Ambient capabilities kept after dropping to `user` (e.g. CAP_NET_ADMIN).
+    pub capabilities: Vec<u32>,
+    /// Created as /run/<name> (owned by the service user) before each start.
+    pub runtime_directory: Option<String>,
+    /// Created as /var/lib/<name> (owned by the service user) if missing.
+    pub state_directory: Option<String>,
 }
 
 #[derive(Debug)]
@@ -152,6 +162,56 @@ pub fn valid_name(name: &str) -> bool {
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.' || b == b'@')
         && !name.starts_with('.')
+}
+
+/// Linux capability numbers (include/uapi/linux/capability.h).
+pub fn capability(name: &str) -> Option<u32> {
+    let n = name.trim().to_ascii_uppercase();
+    let n = n.strip_prefix("CAP_").unwrap_or(&n);
+    Some(match n {
+        "CHOWN" => 0,
+        "DAC_OVERRIDE" => 1,
+        "DAC_READ_SEARCH" => 2,
+        "FOWNER" => 3,
+        "FSETID" => 4,
+        "KILL" => 5,
+        "SETGID" => 6,
+        "SETUID" => 7,
+        "SETPCAP" => 8,
+        "LINUX_IMMUTABLE" => 9,
+        "NET_BIND_SERVICE" => 10,
+        "NET_BROADCAST" => 11,
+        "NET_ADMIN" => 12,
+        "NET_RAW" => 13,
+        "IPC_LOCK" => 14,
+        "IPC_OWNER" => 15,
+        "SYS_MODULE" => 16,
+        "SYS_RAWIO" => 17,
+        "SYS_CHROOT" => 18,
+        "SYS_PTRACE" => 19,
+        "SYS_PACCT" => 20,
+        "SYS_ADMIN" => 21,
+        "SYS_BOOT" => 22,
+        "SYS_NICE" => 23,
+        "SYS_RESOURCE" => 24,
+        "SYS_TIME" => 25,
+        "SYS_TTY_CONFIG" => 26,
+        "MKNOD" => 27,
+        "LEASE" => 28,
+        "AUDIT_WRITE" => 29,
+        "AUDIT_CONTROL" => 30,
+        "SETFCAP" => 31,
+        "MAC_OVERRIDE" => 32,
+        "MAC_ADMIN" => 33,
+        "SYSLOG" => 34,
+        "WAKE_ALARM" => 35,
+        "BLOCK_SUSPEND" => 36,
+        "AUDIT_READ" => 37,
+        "PERFMON" => 38,
+        "BPF" => 39,
+        "CHECKPOINT_RESTORE" => 40,
+        _ => return None,
+    })
 }
 
 pub fn parse_signal(s: &str) -> Option<i32> {
@@ -233,6 +293,26 @@ impl Service {
                 return Err(inv("oom_score_adjust must be between -1000 and 1000"));
             }
         }
+        let mut capabilities = Vec::new();
+        for c in &raw.capabilities {
+            capabilities
+                .push(capability(c).ok_or_else(|| inv(&format!("unknown capability '{c}'")))?);
+        }
+        if !capabilities.is_empty() && raw.user.is_none() {
+            return Err(inv("'capabilities' only applies to services with a 'user'"));
+        }
+        for d in raw
+            .runtime_directory
+            .iter()
+            .chain(raw.state_directory.iter())
+        {
+            if d.is_empty() || d.starts_with('/') || d.split('/').any(|c| c == ".." || c.is_empty())
+            {
+                return Err(inv(&format!(
+                    "directory '{d}' must be a relative name like \"nscd\""
+                )));
+            }
+        }
         let restart_max = raw.restart_max.unwrap_or(5);
         let restart_window_s = raw.restart_window_s.unwrap_or(60);
         if restart_window_s == 0 {
@@ -262,6 +342,9 @@ impl Service {
             umask,
             rlimit_nofile: raw.rlimit_nofile,
             oom_score_adjust: raw.oom_score_adjust,
+            capabilities,
+            runtime_directory: raw.runtime_directory,
+            state_directory: raw.state_directory,
         })
     }
 }
@@ -436,6 +519,32 @@ mod tests {
         assert_eq!(s.oom_score_adjust, Some(-500));
         assert!(p("a", "command = [\"/bin/true\"]\numask = \"999\"").is_err());
         assert!(p("a", "command = [\"/bin/true\"]\noom_score_adjust = 2000").is_err());
+    }
+
+    #[test]
+    fn capabilities_and_directories() {
+        let s = p("a", "command = [\"/bin/true\"]\nuser = \"nobody\"\ncapabilities = [\"CAP_NET_ADMIN\", \"net_raw\"]\nruntime_directory = \"a\"\nstate_directory = \"a/b\"").unwrap();
+        assert_eq!(s.capabilities, vec![12, 13]);
+        assert!(p(
+            "a",
+            "command = [\"/bin/true\"]\nuser = \"nobody\"\ncapabilities = [\"CAP_NOPE\"]"
+        )
+        .is_err());
+        assert!(p(
+            "a",
+            "command = [\"/bin/true\"]\ncapabilities = [\"CAP_NET_ADMIN\"]"
+        )
+        .is_err());
+        assert!(p(
+            "a",
+            "command = [\"/bin/true\"]\nruntime_directory = \"../etc\""
+        )
+        .is_err());
+        assert!(p(
+            "a",
+            "command = [\"/bin/true\"]\nstate_directory = \"/var/lib/x\""
+        )
+        .is_err());
     }
 
     #[test]

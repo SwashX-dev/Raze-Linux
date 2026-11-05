@@ -101,6 +101,15 @@ in
         "xdg/mako/config".source = "${pkgs.raze-branding}/share/raze/desktop/mako.conf";
       };
 
+      # Graphical session services (r6-user). Started by raze-session-ready once the
+      # compositor's Wayland socket exists; components add themselves as dependencies.
+      raze.r6.userServices.graphical-session = {
+        description = "Graphical session services";
+        type = "oneshot";
+        command = [ "${pkgs.coreutils}/bin/true" ];
+        enable = false;
+      };
+
       # Lightweight TTY greeter; no X server, no heavy display manager.
       services.greetd = {
         enable = true;
