@@ -119,6 +119,7 @@ pub struct Rift {
     pub xwayland_display: Option<String>,
     pub ipc: crate::ipc::Ipc,
     pub pending_captures: Vec<crate::screencopy::PendingCapture>,
+    pub pending_wlr_copies: Vec<crate::screencopy::PendingWlrCopy>,
     pub capture_sessions: Vec<smithay::wayland::image_copy_capture::Session>,
     pub last_state_hash: u64,
     /// Toplevels that have not committed a buffer yet.
@@ -204,6 +205,7 @@ impl Rift {
         let output_capture_source_state = OutputCaptureSourceState::new::<Rift>(&dh);
         let image_copy_capture_state = ImageCopyCaptureState::new::<Rift>(&dh);
         let single_pixel_buffer_state = SinglePixelBufferState::new::<Rift>(&dh);
+        dh.create_global::<Rift, smithay::reexports::wayland_protocols_wlr::screencopy::v1::server::zwlr_screencopy_manager_v1::ZwlrScreencopyManagerV1, _>(3, ());
         CursorShapeManagerState::new::<Rift>(&dh);
         RelativePointerManagerState::new::<Rift>(&dh);
         PointerConstraintsState::new::<Rift>(&dh);
@@ -276,6 +278,7 @@ impl Rift {
             xwayland_display: None,
             ipc,
             pending_captures: Vec::new(),
+            pending_wlr_copies: Vec::new(),
             capture_sessions: Vec::new(),
             last_state_hash: 0,
             unmapped: Vec::new(),

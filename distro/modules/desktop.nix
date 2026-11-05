@@ -127,7 +127,7 @@ in
     })
 
     (lib.mkIf (d == "rift") {
-      environment.systemPackages = with pkgs; [ rift rift-shell cliphist libnotify wl-screenrec playerctl ];
+      environment.systemPackages = with pkgs; [ rift rift-shell cliphist libnotify wf-recorder playerctl ];
       services.displayManager.sessionPackages = [ pkgs.rift ];
       # The shell's icon glyphs (a subset of Material Symbols Rounded).
       fonts.packages = [ pkgs.rift-shell ];

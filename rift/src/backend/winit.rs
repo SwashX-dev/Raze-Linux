@@ -72,7 +72,7 @@ impl Winit {
                 false
             }
         };
-        crate::screencopy::process(state, self.backend.renderer(), output);
+        crate::screencopy::process(state, self.backend.renderer(), output, rendered);
         self.backend.window().set_cursor_visible(false);
         super::post_render(state, output, rendered);
         super::throttle_idle(state, output);

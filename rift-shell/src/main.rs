@@ -238,7 +238,9 @@ fn record_start(region: bool) -> Result<(), String> {
     let dir = xdg_user_dir("VIDEOS", "Videos").join("Recordings");
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let file = dir.join(format!("Recording_{}.mp4", timestamp()));
-    let mut cmd = Command::new("wl-screenrec");
+    // wf-recorder captures through wlr-screencopy (frames only when the screen changes)
+    // and encodes with libx264 on the CPU.
+    let mut cmd = Command::new("wf-recorder");
     if region {
         let geometry = match output("slurp", &["-d"]) {
             Ok(g) if !g.is_empty() => g,
@@ -248,16 +250,12 @@ fn record_start(region: bool) -> Result<(), String> {
     } else if let Some(o) = focused_output() {
         cmd.args(["-o", &o]);
     }
-    // Without a VA-API capable render node, encode on the CPU.
-    if !Path::new("/dev/dri/renderD128").exists() {
-        cmd.arg("--no-hw");
-    }
     cmd.arg("-f").arg(&file).stdin(Stdio::null()).stdout(Stdio::null());
     let log = std::fs::File::create(record_pidfile().with_extension("log")).ok();
     if let Some(l) = log {
         cmd.stderr(l);
     }
-    let child = cmd.spawn().map_err(|e| format!("cannot start wl-screenrec: {e}"))?;
+    let child = cmd.spawn().map_err(|e| format!("cannot start wf-recorder: {e}"))?;
     std::fs::write(record_pidfile(), format!("{}\n{}\n", child.id(), file.display()))
         .map_err(|e| format!("cannot write the recording state: {e}"))?;
     let _ = ipc(&["recording", "setActive", "true"]);

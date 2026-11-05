@@ -341,7 +341,7 @@ where
         }
     };
     drop(elements);
-    crate::screencopy::process(state, &mut gpu.renderer, output);
+    crate::screencopy::process(state, &mut gpu.renderer, output, queued == Some(true));
     queued
 }
 

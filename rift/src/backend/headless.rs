@@ -64,7 +64,7 @@ impl Headless {
             }
         };
         drop(elements);
-        crate::screencopy::process(state, &mut self.renderer, output);
+        crate::screencopy::process(state, &mut self.renderer, output, rendered);
         if rendered {
             self.frames += 1;
         }

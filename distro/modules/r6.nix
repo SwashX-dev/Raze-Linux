@@ -102,11 +102,21 @@ in
         default = { };
         description = "Per-user r6 services (run by r6-user in each session), rendered to /etc/r6/user-services.";
       };
+      # Raze 1.0 had r6 as an extra boot entry; 1.1 runs it as PID 1 (raze.init).
+      # Kept so 1.0 configurations still evaluate when upgrading.
+      bootEntry.enable = lib.mkOption {
+        type = lib.types.bool;
+        default = false;
+        visible = false;
+        description = "Removed in Raze 1.1 (no effect): r6 is the default PID 1, see raze.init.";
+      };
     };
   };
 
   config = lib.mkMerge [
     {
+      warnings = lib.optional cfg.bootEntry.enable
+        "raze.r6.bootEntry.enable has no effect since Raze 1.1: r6 is PID 1 by default (raze.init = \"${config.raze.init}\"). Remove the line from configuration.nix.";
       environment.etc."r6/services".source = serviceDir "r6-services" cfg.services;
       environment.etc."r6/user-services".source = serviceDir "r6-user-services" cfg.userServices;
       environment.etc."r6/r6.toml".source = toml.generate "r6.toml" {

@@ -11,7 +11,7 @@
 , libnotify
 , brightnessctl
 , wireplumber
-, wl-screenrec
+, wf-recorder
 , version
 }:
 
@@ -46,7 +46,7 @@ rustPlatform.buildRustPackage {
 
   postFixup = ''
     wrapProgram $out/bin/rift-shell \
-      --prefix PATH : ${lib.makeBinPath [ quickshell grim slurp wl-clipboard cliphist libnotify brightnessctl wireplumber wl-screenrec ]}
+      --prefix PATH : ${lib.makeBinPath [ quickshell grim slurp wl-clipboard cliphist libnotify brightnessctl wireplumber wf-recorder ]}
   '';
 
   meta = {
