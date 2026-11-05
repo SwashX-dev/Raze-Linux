@@ -33,70 +33,78 @@ Raze Linux is an experimental, performance-focused Linux distribution built arou
 
 ## Overview
 
-Raze Linux 1.0 is a **NixOS-derived distribution built with Nix**: the whole system
-is declared in Nix, built reproducibly from a pinned nixpkgs revision, and installed
-as atomic generations you can roll back from the boot menu. On top of that
-foundation Raze ships its own Rust components, a performance-tuned default
-configuration, a keyboard-first desktop, and a graphical installer.
+Raze Linux is a **NixOS-derived distribution built with Nix**: the whole system is
+declared in Nix, built reproducibly from a pinned nixpkgs revision, and installed as
+atomic generations you can roll back from the boot menu. On that foundation Raze runs
+its own Rust components: **r6** as PID 1 and service manager, the **Rift** Wayland
+compositor with **Rift Shell**, and the **Rix** package tool.
 
 **Why it exists:** to see how far a desktop Linux system can be pushed toward low
-overhead and fast startup when every default is measured, and to develop
-Rust-first core components (init, supervision, package tooling) with real tests and
+overhead and fast startup when every default is measured, and to build Rust-first
+core components (init, supervision, compositor, package tooling) with real tests and
 real benchmarks instead of claims.
 
-## Release status — v1.0.0
+## Release status — v1.1.0
 
 | | |
 |---|---|
-| Version | **1.0.0** (2026-11-05) |
+| Version | **1.1.0** (2026-11-05) |
 | Architecture | x86_64 |
-| Kernel | Linux **7.3.1** (latest stable at release) |
+| Kernel | Linux **7.3.1**; installer default profile: **performance** |
 | Base | nixpkgs `1d060086d60c` (nixos-unstable, pinned) |
-| Default desktop | **niri** + Raze session (software-rendered sway fallback without 3D GPU) |
-| Default PID 1 | **systemd** (r6 runs as PID 1 in Raze Core and an optional boot entry) |
+| PID 1 / service manager | **r6** — live ISO, installed systems, default desktop (systemd only inside the initramfs) |
+| Default desktop | **Rift** (Raze's own Smithay compositor) + **Rift Shell** |
 | Package management | **Rix** (Rust) on top of **Nix** |
 | Privilege escalation | **sudo-rs** |
-| Installer | **Calamares** with a Raze install module |
+| Installer | **Calamares** with a Raze install module, GRUB on BIOS and EFI |
 
-What is honestly *not* in 1.0: the Rift compositor, r6 as the default PID 1 of
-installed systems, and a native Nix evaluator. See
-[known limitations](#known-limitations).
+Upgrading from 1.0: [docs/installation/upgrade.md](docs/installation/upgrade.md).
+What is not done yet: [known limitations](#known-limitations).
 
 ## Features
 
-- **r6** — Rust init + service supervisor (PID 1 verified in CI), single-process
-  supervision of all services, dependency-ordered parallel activation, readiness
-  notification, restart limits, rotated logs, build-time service-graph validation.
+- **r6 everywhere** — Rust PID 1 and supervisor for the whole system and, with
+  `r6-user`, for each desktop session (D-Bus, PipeWire, Rift Shell, clipboard
+  history). systemd's roles are covered by r6, eudev, elogind, dbus-daemon, ntpd-rs,
+  `r6-tmpfiles` and `r6-syslogd`; `nixos-rebuild switch` works through r6's own
+  switch-to-configuration.
+- **Rift** — scrollable-tiling Wayland compositor written on Smithay: columns that
+  never resize each other, dynamic workspaces per monitor, animations, GLES on GPUs
+  and a pixman renderer when there is no 3D acceleration, screencopy for screenshots
+  and recording, XWayland, JSON IPC.
+- **Rift Shell** — panel, launcher (apps, calculator, commands), control centre
+  (Wi-Fi, Bluetooth, audio, brightness, power profiles, night light, Do Not Disturb),
+  notification daemon with history, lock screen, power menu, screenshots, screen
+  recording, clipboard history, OSD, polkit agent, themes, plugins, multi-monitor.
 - **Rix** — Rust package-management CLI with native, Nix-compatible NAR hashing,
-  store verification, generations and atomic rollback, and an instant search index;
-  evaluation, builds and installs are delegated to Nix (and printed as such).
+  store verification, generations and atomic rollback, instant search; evaluation,
+  builds and installs are delegated to Nix (and printed as such).
+- **sudo-rs** is the only sudo. **fastfetch** knows Raze (`neofetch` runs it too).
 - **Reproducible and atomic** — pinned flake, system generations, rollbacks.
-- **sudo-rs** by default, classic sudo disabled.
-- **Lean defaults** — dbus-broker, zram swap, bounded journald, no
-  speech-dispatcher, explicit small font set, no wait-online.
-- **Desktop choice at install** — niri (default), Hyprland, dwl, Xfce, LXQt,
-  KDE Plasma, GNOME, dwm; profiles Desktop, Development, Minimal.
-- **Works without a 3D GPU** — `raze-session` detects software-only rendering and
-  starts a themed sway/pixman session instead of a black screen.
+- **Desktop choice at install** — Rift (default), niri, Hyprland, dwl, Xfce, LXQt,
+  KDE Plasma, GNOME, dwm.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
   subgraph Build["Nix flake (pinned)"]
-    r6[r6] & rix[rix] & br[branding] --> ov[overlay] --> mods[Raze modules]
+    r6[r6] & rix[rix] & rift[Rift] & shell[Rift Shell] --> ov[overlay] --> mods[Raze modules]
   end
   mods --> iso[Live ISO + Calamares]
-  mods --> core[Raze Core image<br/>r6 as PID 1]
   iso -->|nixos-install --flake| sys
   subgraph sys["Installed system"]
-    k[Linux 7.3.1] --> sd[systemd] --> gd[greetd] --> rs[raze-session<br/>niri / sway-pixman]
-    sd --> nm[NetworkManager] & db[dbus-broker] & nd[nix-daemon]
-    rixc[rix] --> nd
+    k[Linux 7.3.1] --> ini[initramfs<br/>NixOS stage 1] -->|switch-root| r6i[r6-init<br/>PID 1]
+    r6i --> r6s[r6-supervise] --> gd[greetd] --> rs[raze-session]
+    r6s --> nm[NetworkManager] & db[dbus] & el[elogind] & ud[eudev] & nd[nix-daemon]
+    rs --> ru[r6-user] --> pw[PipeWire] & sh[Rift Shell]
+    rs --> rf[Rift]
   end
 ```
 
-Details: [docs/architecture/overview.md](docs/architecture/overview.md).
+Details: [docs/architecture/overview.md](docs/architecture/overview.md) ·
+[r6](docs/architecture/r6.md) · [Rift](docs/architecture/rift.md) ·
+[Rift Shell](docs/architecture/rift-shell.md) · [Rix](docs/architecture/rix.md)
 
 ## r6 init system
 
@@ -104,59 +112,76 @@ Details: [docs/architecture/overview.md](docs/architecture/overview.md).
 |---|---|
 | `r6-init` | PID 1: mounts, reaping, supervisor respawn, emergency shell, ordered shutdown |
 | `r6-supervise` | One event loop supervising every service (s6 uses one process per service) |
-| `r6-activate` | Validates service graphs (cycles, unknown deps); prints parallel waves |
-| `r6-log` | Rotated, timestamped logs |
-| `r6` | `status`, `start`, `stop`, `restart`, `enable`, `disable`, `list`, `logs`, `reload`, `check`, `info`, `reboot`, `poweroff` |
+| `r6-user` | The same supervisor for a user session |
+| `r6-tmpfiles`, `r6-syslogd` | tmpfiles.d and `/dev/log` |
+| `r6-activate`, `r6-config` | Service-graph validation (build time), inspection |
+| `r6` | `status`, `start`, `stop`, `restart`, `enable`, `disable`, `list`, `logs`, `reload`, `check`, `info`, `reboot`, `poweroff`, `suspend` |
 
-```toml
-# /etc/r6/services/sshd.toml
-command = ["/run/current-system/sw/bin/sshd", "-D"]
-depends = ["network"]
-restart = "always"
-enable = true
+Services are declared in Nix and rendered to TOML:
+
+```nix
+raze.r6.services.ntpd-rs = {
+  command = [ "${pkgs.ntpd-rs}/bin/ntp-daemon" "-c" "/etc/ntpd-rs.toml" ];
+  user = "ntpd-rs";
+  capabilities = [ "CAP_SYS_TIME" "CAP_NET_BIND_SERVICE" ];
+  restart = "always";
+};
 ```
 
-Tested by 14 unit + 18 end-to-end tests and a QEMU boot test where r6 is PID 1.
-→ [docs/architecture/r6.md](docs/architecture/r6.md)
+```bash
+r6 status                 # every service, state, uptime
+r6 logs NetworkManager    # rotated per-service logs
+r6 --user status          # the session's services
+```
+
+## Rift and Rift Shell
+
+```bash
+rift msg workspaces                   # IPC (JSON)
+rift msg action workspace 2
+rift-shell screenshot region          # ~/Pictures/Screenshots + clipboard
+rift-shell record toggle              # ~/Videos/Recordings
+```
+
+Default keys: Super+Return terminal · Super+D launcher · Super+N control centre ·
+Super+V clipboard · Super+Escape power menu · Super+Alt+L lock · Print screenshot ·
+Super+←/→ focus column · Super+Ctrl+←/→ move column · Super+R width preset ·
+Super+F maximize · Super+1…5 workspace · Super+Shift+E log out. Configuration:
+`~/.config/rift/config.toml` (defaults: [rift/default-config.toml](rift/default-config.toml)),
+`~/.config/rift-shell/settings.json`.
 
 ## Rix package manager
 
 ```bash
 rix search firefox          # native index search
 rix install firefox         # → nix profile add nixpkgs#firefox
-rix list                    # native manifest reader
 rix generations             # native
 rix rollback                # native, atomic
-sudo rix system switch      # → nixos-rebuild switch --flake /etc/nixos#raze
+sudo rix system switch      # → nixos-rebuild switch --flake /etc/nixos#raze (works under r6)
 rix hash path ./dir         # native NAR hash, identical to `nix hash path`
-rix verify /nix/store/…     # native re-hash vs the Nix database
 ```
 
 Rix is a front-end, **not** a Nix reimplementation; what is native and what is
 delegated is listed in [docs/architecture/rix.md](docs/architecture/rix.md).
 
-## Rift compositor
-
-Rift is **not included in 1.0** and the installer does not offer it. Its purpose
-and release criteria are in [docs/architecture/rift.md](docs/architecture/rift.md).
-The default compositor is upstream niri.
-
 ## Supported desktops
 
-| Desktop | Status |
+| Desktop | Status in 1.1 |
 |---|---|
-| **niri** (Raze Desktop, default) | Installed and tested; shipped on the ISO |
-| sway + pixman (automatic fallback) | Tested (VM without 3D) |
-| Hyprland, dwl, Xfce, LXQt, KDE Plasma, GNOME, dwm | Selectable; downloaded during install; **not tested in 1.0** |
+| **Rift + Rift Shell** (default) | Shipped on the ISO; tested with and without 3D acceleration, under r6 and systemd |
+| niri + waybar session | Tested under r6 with 3D acceleration (benchmark VM) |
+| sway + pixman (niri's automatic fallback) | Tested in 1.0 |
+| Hyprland, dwl, Xfce, LXQt, KDE Plasma, GNOME, dwm | Selectable; downloaded during install; **not tested in 1.1** |
 
 ## Installation
 
-1. Download the [ISO](https://github.com/SwashX-dev/Raze-Linux/releases/download/v1.0.0/raze-linux-v1.0.0-x86_64.iso) and [SHA256SUMS](https://github.com/SwashX-dev/Raze-Linux/releases/download/v1.0.0/SHA256SUMS), then `sha256sum -c SHA256SUMS`.
-2. Write it to a USB stick: `sudo dd if=raze-linux-v1.0.0-x86_64.iso of=/dev/sdX bs=4M status=progress oflag=sync`.
+1. Download the [ISO](https://github.com/SwashX-dev/Raze-Linux/releases/download/v1.1.0/raze-linux-v1.1.0-x86_64.iso) and [SHA256SUMS](https://github.com/SwashX-dev/Raze-Linux/releases/download/v1.1.0/SHA256SUMS), then `sha256sum -c SHA256SUMS`.
+2. Write it to a USB stick: `sudo dd if=raze-linux-v1.1.0-x86_64.iso of=/dev/sdX bs=4M status=progress oflag=sync`.
 3. Boot it. The installer opens automatically: language → keyboard → disk → desktop → profile → user → install.
 4. Reboot into Raze. **A network connection is required during installation.**
 
 Full guide: [docs/installation/graphical.md](docs/installation/graphical.md) ·
+upgrade from 1.0: [docs/installation/upgrade.md](docs/installation/upgrade.md) ·
 manual install: [docs/installation/manual.md](docs/installation/manual.md) ·
 recovery: [docs/installation/recovery.md](docs/installation/recovery.md)
 
@@ -168,40 +193,28 @@ recovery: [docs/installation/recovery.md](docs/installation/recovery.md)
 | RAM | 2 GB | 4 GB |
 | Disk | 12 GB | 30 GB+ |
 | Firmware | UEFI or BIOS (BIOS untested) | UEFI |
-| GPU | any (software fallback) | OpenGL ES 3 capable for niri |
+| GPU | any (Rift renders with pixman without 3D) | OpenGL ES 3 capable |
 
 Tested: QEMU/KVM with OVMF (UEFI), virtio disk/network, with and without 3D
-acceleration. Real hardware has not been tested for 1.0.
+acceleration. Real hardware has not been tested for 1.1.
 
 ## Performance benchmarks
 
 All numbers are real measurements; method and environment in
 [docs/performance](docs/performance).
 
-| Metric | Result | vs |
-|---|---|---|
-| Installed desktop boot → `graphical.target` | **4.75 s** (0.49 kernel + 2.15 initrd + 2.12 userspace) | — |
-| Installed desktop memory after login (niri, waybar, terminal) | **525 MiB** | — |
-| r6: PID 1 → 20 services started | **32.3 ms** | s6: 32.4 ms (same) |
-| r6: init + supervision processes | **2** | s6: 27 |
-| r6: supervision RSS / PSS | 1.78 MB / 1.77 MB | s6: 3.17 MB / **1.22 MB** |
-| Raze Minimal kernel: kernel start → PID 1 | **169.6 ms** | generic: 201.4 ms (−16 %) |
-| Raze Minimal kernel: system memory used | **34.9 MB** | generic: 50.2 MB (−30 %) |
-| `rix search firefox` (113 419 packages) | **63.7 ms** | `nix search` warm: 1734 ms (27× faster) |
-| ISO size | **2.11 GB** | first build: 3.08 GB |
+@@BENCH_TABLE@@
 
-Environment: QEMU/KVM on an AMD Ryzen 5 7235HS host (4 vCPU / 4 GiB for desktop
-tests, 2 vCPU / 256 MiB for Raze Core), medians of 10 boots where applicable.
-s6 wins on PSS; r6 is not faster than s6 at activation, it matches it with fewer
-processes. Full tables: [docs/performance/benchmarks.md](docs/performance/benchmarks.md).
+Full tables and raw data: [docs/performance/benchmarks.md](docs/performance/benchmarks.md).
 
 ## Build from source
 
 ```bash
 git clone https://github.com/SwashX-dev/Raze-Linux && cd Raze-Linux
-nix build .#iso                       # → result/iso/raze-linux-v1.0.0-x86_64.iso
-nix build .#checks.x86_64-linux.core-boot .#checks.x86_64-linux.desktop
+nix build .#iso                       # → result/iso/raze-linux-v1.1.0-x86_64.iso
+nix build .#checks.x86_64-linux.desktop .#checks.x86_64-linux.core-boot
 nix develop -c cargo test --workspace
+nix develop -c cargo test --manifest-path rift/Cargo.toml
 ```
 
 Requires Nix with flakes, ~40 GB free disk for the ISO, KVM for VM tests.
@@ -214,23 +227,14 @@ Performance claims need measurements; delegated functionality must be labelled.
 
 ## Known limitations
 
-- Default PID 1 on installed systems is **systemd**; the r6 boot entry is
-  experimental and not boot-tested in 1.0.
-- **Rift is not included**; niri is the default compositor.
-- **Rix delegates** evaluation, builds, substitution and installs to Nix.
-- Installation requires a network connection.
-- niri requires a 3D-capable GPU; elsewhere the sway/pixman fallback is used
-  (no xdg-desktop-portal in that session).
-- Not tested: BIOS installs, manual partitioning, dual boot, non-default desktops,
-  real hardware, non-generic kernel profiles on installed systems.
-- The ISO is not signed (SHA-256 checksums only).
+@@LIMITATIONS@@
 
 Full list: [docs/troubleshooting/known-issues.md](docs/troubleshooting/known-issues.md)
 
 ## Development roadmap
 
-1. r6 as default PID 1 for the Minimal profile; boot-test the r6 entry in CI.
-2. Rift: Smithay compositor with DRM/libinput backend, GLES **and** pixman renderers.
+1. Rift: multi-GPU, dmabuf screencopy, touch gestures, tablet input.
+2. r6: replace the systemd-based initramfs with an r6 stage 1.
 3. Rix: native substitution (narinfo + parallel NAR downloads), then evaluation.
 4. Hardware validation matrix (real machines, BIOS, dual boot), signed releases.
 5. Desktop memory and boot-time reductions, measured per change.
@@ -238,14 +242,15 @@ Full list: [docs/troubleshooting/known-issues.md](docs/troubleshooting/known-iss
 ## License
 
 Raze Linux's own code is MIT licensed ([LICENSE](LICENSE)). The ISO contains
-third-party software (Linux, nixpkgs packages, Calamares, niri, sudo-rs, …) under
+third-party software (Linux, nixpkgs packages, Calamares, Quickshell, sudo-rs, …) under
 their own licenses.
 
 ## Credits
 
 Built on the work of the [NixOS/nixpkgs](https://github.com/NixOS/nixpkgs)
 community, the [Linux kernel](https://kernel.org), [niri](https://github.com/YaLTeR/niri),
-[Smithay](https://github.com/Smithay/smithay), [sway/wlroots](https://swaywm.org),
+[Smithay](https://github.com/Smithay/smithay) (Rift is built on it), [Quickshell](https://quickshell.org) and
+[Noctalia](https://github.com/noctalia-dev/noctalia-shell) (Rift Shell's runtime and inspiration), [sway/wlroots](https://swaywm.org),
 [Calamares](https://calamares.io), [sudo-rs](https://github.com/trifectatechfoundation/sudo-rs)
 (Trifecta Tech Foundation), [s6](https://skarnet.org/software/s6/) (the inspiration
-for r6), waybar, fuzzel, foot, mako and busybox.
+for r6), eudev, elogind, ntpd-rs, fastfetch, waybar, fuzzel, foot, mako and busybox.

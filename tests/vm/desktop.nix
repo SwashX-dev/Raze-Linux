@@ -15,6 +15,8 @@ pkgs.testers.runNixOSTest {
     raze.profile = "desktop";
     raze.desktop = "rift";
     raze.init = init;
+    # The installer's default kernel profile (sched_ext scheduler, full preemption).
+    raze.kernel.profile = if init == "r6" then "performance" else "generic";
     raze.autologinUser = "raze";
     users.users.raze = {
       isNormalUser = true;
@@ -39,6 +41,11 @@ pkgs.testers.runNixOSTest {
             # Every enabled system service is up (longrun) or done (oneshot).
             machine.wait_until_succeeds("! r6 list | awk '$3 == \"enabled\" && $2 != \"up\" && $2 != \"done\"' | grep .", timeout=120)
             machine.succeed("r6-activate --dir /etc/r6/services")
+            # NixOS firewall rules and the performance profile's sched_ext scheduler,
+            # both NixOS systemd units ported to r6 services.
+            machine.succeed("iptables -S | grep -q nixos-fw")
+            machine.wait_until_succeeds("grep -qx enabled /sys/kernel/sched_ext/state", timeout=60)
+            machine.succeed("grep -q preempt=full /proc/cmdline")
             machine.succeed("logger -t raze-test hello-syslog")
             machine.wait_until_succeeds("r6 logs syslog | grep -q hello-syslog")
         else:

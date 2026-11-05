@@ -566,9 +566,24 @@ fn main() -> ExitCode {
                         None => p.rollback(),
                     };
                     let n = r.unwrap_or_else(|e| die(&e.to_string()));
-                    println!("system profile now at generation {n}; activating");
                     let script = p.path.join("bin/switch-to-configuration");
-                    delegate(&script.display().to_string(), &["switch".into()])
+                    // A generation with a different PID 1 (r6 <-> systemd) cannot be
+                    // activated in place: make it the boot default and ask for a reboot.
+                    let running_r6 = std::fs::read_to_string("/proc/1/comm")
+                        .map(|c| c.trim() == "r6-init")
+                        .unwrap_or(false);
+                    let target_r6 = p.path.join("etc/r6/r6.toml").exists();
+                    if running_r6 != target_r6 {
+                        println!(
+                            "system profile now at generation {n}; it uses {} as PID 1, so it \
+                             becomes active after a reboot",
+                            if target_r6 { "r6" } else { "systemd" }
+                        );
+                        delegate(&script.display().to_string(), &["boot".into()])
+                    } else {
+                        println!("system profile now at generation {n}; activating");
+                        delegate(&script.display().to_string(), &["switch".into()])
+                    }
                 }
                 other => die(&format!("unknown system command '{other}'")),
             }

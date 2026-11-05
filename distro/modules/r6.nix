@@ -65,10 +65,50 @@ let
 
   # Reuse NixOS's own start script of a script-based systemd unit (oneshot logic such
   # as setting up setuid wrappers), so r6 runs exactly what NixOS intends.
+  # The command of a NixOS unit's ExecStart, as an argv list. Handles systemd's prefixes
+  # ("@path argv0 args": run path with argv[0] replaced; "-", "+", "!", ":").
   unitExec = name:
     let sc = config.systemd.services.${name}.serviceConfig;
         exec = if builtins.isList sc.ExecStart then lib.last sc.ExecStart else sc.ExecStart;
-    in lib.filter (w: w != "") (lib.splitString " " exec);
+        words = lib.filter (w: w != "") (lib.splitString " " exec);
+        first = lib.head words;
+        stripped = lib.removePrefix "@" (lib.removePrefix "-" (lib.removePrefix "+" (lib.removePrefix "!" (lib.removePrefix ":" first))));
+    in [ stripped ] ++ lib.drop (if lib.hasPrefix "@" (lib.removePrefix "-" first) then 2 else 1) words;
+  # The unit's environment (PATH from `path`, plus `environment`).
+  unitEnv = name: lib.filterAttrs (_: v: v != null) (lib.mapAttrs (_: toString) config.systemd.services.${name}.environment);
+
+  # r6 has no timers: a longrun that runs `command` at most once per `interval`
+  # seconds (persisted across reboots), first 10 minutes after boot.
+  periodic = name: interval: command: {
+    description = "Periodic: ${name} (every ${toString interval} s)";
+    restart = "always";
+    command = sh ''
+      stamp=/var/lib/r6/periodic/${name}
+      mkdir -p /var/lib/r6/periodic
+      sleep 600
+      while :; do
+        now=$(date +%s); last=$(cat $stamp 2>/dev/null || echo 0)
+        if [ $((now - last)) -ge ${toString interval} ]; then
+          ${lib.escapeShellArgs command} && echo "$now" > $stamp
+        fi
+        sleep 3600
+      done
+    '';
+  };
+
+  # NixOS units that r6 replaces or that do not apply to it. Any other enabled unit
+  # without an r6 service triggers a build warning (see below).
+  coveredUnits = [
+    "NetworkManager" "NetworkManager-dispatcher" "NetworkManager-wait-online" "wpa_supplicant"
+    "firewall" "nftables" "post-boot" "network-local-commands" "nscd" "ntpd-rs" "resolvconf"
+    "greetd" "sshd" "suid-sgid-wrappers" "systemd-modules-load" "systemd-sysctl" "scx"
+    "polkit" "rtkit-daemon" "upower" "udisks2" "power-profiles-daemon" "bluetooth"
+    "dbus" "nix-daemon" "fstrim" "logrotate" "backdoor" "qemu-guest-agent" "spice-vdagentd"
+    # Not applicable under r6 (systemd-internal, kexec, one-time migrations, pstore).
+    "generate-shutdown-ramfs" "prepare-kexec" "lastlog2-import" "linger-users"
+    "logrotate-checkconf" "reload-systemd-vconsole-setup" "sleep-actions" "systemd-pstore"
+    "nix-load-db"
+  ];
 
   getty = tty: {
     description = "Login prompt on ${tty}";
@@ -234,6 +274,14 @@ in
         });
       '';
 
+      warnings =
+        let
+          wanted = lib.filterAttrs (n: v: v.enable && v.wantedBy != [ ] && !(lib.elem n coveredUnits)
+            && !(cfg.services ? ${n})) config.systemd.services;
+        in
+        lib.optional (wanted != { })
+          "raze.init = \"r6\": these enabled NixOS services have no r6 service and will not run: ${lib.concatStringsSep ", " (lib.attrNames wanted)}. Declare them in raze.r6.services (see docs/architecture/r6.md) or use raze.init = \"systemd\".";
+
       raze.r6.services = {
         syslog = {
           description = "syslog(3) receiver on /dev/log";
@@ -365,7 +413,8 @@ in
         networkmanager = {
           description = "Network connections";
           depends = [ "dbus" "udev-settle" ];
-          wants = [ "polkit" "wpa_supplicant" ];
+          # The firewall is loaded before any interface comes up.
+          wants = [ "polkit" "wpa_supplicant" "firewall" "nftables" ];
           command = [ "${config.networking.networkmanager.package}/bin/NetworkManager" "--no-daemon" ];
           restart = "always";
         };
@@ -463,6 +512,55 @@ in
           restart = "always";
           log = "null";
         };
+      }
+      // lib.optionalAttrs (config.networking.firewall.enable && !config.networking.nftables.enable) {
+        firewall = {
+          description = "Firewall (NixOS rules, iptables)";
+          type = "oneshot";
+          wants = [ "modules" ];
+          command = unitExec "firewall";
+          environment = unitEnv "firewall";
+        };
+      }
+      // lib.optionalAttrs config.networking.nftables.enable {
+        nftables = {
+          description = "Firewall (NixOS rules, nftables)";
+          type = "oneshot";
+          wants = [ "modules" ];
+          command = unitExec "nftables";
+          environment = unitEnv "nftables";
+        };
+      }
+      // {
+        post-boot = {
+          description = "powerManagement boot/power-up commands (NixOS unit script)";
+          type = "oneshot";
+          wants = [ "filesystems" ];
+          command = unitExec "post-boot";
+          environment = unitEnv "post-boot";
+        };
+        network-local-commands = {
+          description = "networking.localCommands and static DNS (NixOS unit script)";
+          type = "oneshot";
+          wants = [ "resolvconf" ];
+          command = unitExec "network-local-commands";
+          environment = unitEnv "network-local-commands";
+        };
+      }
+      // lib.optionalAttrs config.services.scx.enable {
+        scx = {
+          description = "sched_ext scheduler (${config.services.scx.scheduler})";
+          wants = [ "modules" ];
+          command = [ "${config.services.scx.package}/bin/${config.services.scx.scheduler}" ] ++ config.services.scx.extraArgs;
+          restart = "on-failure";
+        };
+      }
+      // lib.optionalAttrs config.services.fstrim.enable {
+        # util-linux ships fstrim.service; this is its ExecStart.
+        fstrim = periodic "fstrim" 604800 [ "${pkgs.util-linux}/bin/fstrim" "--listed-in" "/etc/fstab:/proc/self/mountinfo" "--verbose" "--quiet-unsupported" ];
+      }
+      // lib.optionalAttrs config.services.logrotate.enable {
+        logrotate = periodic "logrotate" 3600 (unitExec "logrotate");
       }
       // lib.optionalAttrs config.services.openssh.enable {
         sshd = {
