@@ -1,0 +1,20 @@
+[workspace]
+resolver = "2"
+members = ["r6"]
+# Rift has heavy native dependencies (Smithay, Mesa, libinput) and its own lockfile.
+exclude = ["rift"]
+
+[workspace.package]
+version = "1.0.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/SwashX-dev/Raze-Linux"
+rust-version = "1.80"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+# Keep unwinding: r6-init catches panics so PID 1 never dies from a bug in one code path.
+panic = "unwind"
