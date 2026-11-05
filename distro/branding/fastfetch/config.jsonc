@@ -1,0 +1,43 @@
+// Raze Linux system-wide fastfetch configuration (/etc/xdg/fastfetch/config.jsonc).
+// Copy to ~/.config/fastfetch/config.jsonc to customise.
+{
+  "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/dev/doc/json_schema.json",
+  "logo": {
+    "type": "file",
+    "source": "@logo@",
+    "padding": { "top": 1, "left": 1, "right": 3 },
+    "color": {
+      // Hexagon: dark red gradient, top-left to bottom-right.
+      "1": "38;2;239;68;68",
+      "2": "38;2;220;38;38",
+      "3": "38;2;185;28;28",
+      // The R: brighter, so it stands out from the frame.
+      "4": "38;2;252;165;165",
+      "5": "38;2;248;113;113",
+      "6": "38;2;239;68;68"
+    }
+  },
+  "display": {
+    "separator": "  ",
+    "color": { "keys": "38;2;239;68;68", "title": "38;2;248;113;113" },
+    "key": { "width": 12 }
+  },
+  "modules": [
+    "title",
+    { "type": "separator", "string": "─" },
+    { "type": "os", "key": "OS" },
+    { "type": "kernel", "key": "Kernel" },
+    { "type": "initsystem", "key": "Init" },
+    { "type": "packages", "key": "Packages" },
+    { "type": "shell", "key": "Shell" },
+    { "type": "wm", "key": "WM" },
+    { "type": "terminal", "key": "Terminal" },
+    { "type": "cpu", "key": "CPU" },
+    { "type": "gpu", "key": "GPU" },
+    { "type": "memory", "key": "Memory" },
+    { "type": "disk", "key": "Disk", "folders": "/" },
+    { "type": "uptime", "key": "Uptime" },
+    "break",
+    { "type": "colors", "symbol": "circle" }
+  ]
+}

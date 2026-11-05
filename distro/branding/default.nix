@@ -2,7 +2,7 @@
 stdenvNoCC.mkDerivation {
   pname = "raze-branding";
   inherit version;
-  src = lib.fileset.toSource { root = ./.; fileset = lib.fileset.unions [ ./art ./desktop ./scripts ]; };
+  src = lib.fileset.toSource { root = ./.; fileset = lib.fileset.unions [ ./art ./desktop ./scripts ./fastfetch/raze.txt ./fastfetch/config.jsonc ]; };
   nativeBuildInputs = [ resvg niri foot fuzzel sway-unwrapped ];
   dontConfigure = true;
   buildPhase = ''
@@ -38,6 +38,10 @@ stdenvNoCC.mkDerivation {
       --replace-fail /run/current-system/sw/share/backgrounds/raze/wallpaper.png $wp
     substituteInPlace $out/share/raze/desktop/sway/raze.conf --replace-fail @WALLPAPER@ $wp
     install -Dm755 -t $out/bin scripts/*
+    # fastfetch: Raze logo and system-wide config (installed as /etc/xdg/fastfetch).
+    install -Dm644 fastfetch/raze.txt $out/share/raze/fastfetch/raze.txt
+    install -Dm644 fastfetch/config.jsonc $out/share/raze/fastfetch/config.jsonc
+    substituteInPlace $out/share/raze/fastfetch/config.jsonc --replace-fail @logo@ $out/share/raze/fastfetch/raze.txt
     runHook postInstall
   '';
   meta = {

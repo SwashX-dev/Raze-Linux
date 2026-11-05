@@ -20,6 +20,12 @@ in
       vendorId = "raze";
       extraOSReleaseArgs = {
         RAZE_VERSION = razeVersion;
+        # Report the Raze release (fastfetch, hostnamectl, ...); NixOS's own release
+        # number stays available as NIXOS_RELEASE.
+        PRETTY_NAME = "Raze Linux ${razeVersion}";
+        VERSION = razeVersion;
+        VERSION_ID = razeVersion;
+        NIXOS_RELEASE = config.system.nixos.release;
         HOME_URL = "https://github.com/SwashX-dev/Raze-Linux";
         DOCUMENTATION_URL = "https://github.com/SwashX-dev/Raze-Linux/tree/main/docs";
         SUPPORT_URL = "https://github.com/SwashX-dev/Raze-Linux/issues";
@@ -50,7 +56,11 @@ in
       channel.enable = false;
     };
 
+    # fastfetch shows the Raze logo; `neofetch` (unmaintained upstream) runs fastfetch.
+    environment.etc."xdg/fastfetch/config.jsonc".source = "${pkgs.raze-branding}/share/raze/fastfetch/config.jsonc";
+
     environment.systemPackages = with pkgs; [
+      (writeShellScriptBin "neofetch" ''exec ${lib.getExe fastfetch} "$@"'')
       r6
       rix
       raze-branding

@@ -16,7 +16,9 @@ in
   imports = [ "${modulesPath}/installer/cd-dvd/installation-cd-base.nix" ];
 
   raze.profile = "desktop";
-  raze.desktop = "niri";
+  # The live session is the default install: r6 as PID 1, Rift + Rift Shell.
+  raze.init = "r6";
+  raze.desktop = "rift";
   raze.autologinUser = "nixos";
 
   isoImage = {
@@ -43,7 +45,7 @@ in
   security.sudo-rs.execWheelOnly = lib.mkForce true;
   services.getty.helpLine = lib.mkForce ''
 
-    Raze Linux ${razeVersion} live system. The graphical session starts automatically.
+    Raze Linux ${razeVersion} live system (r6 init, Rift desktop). The graphical session starts automatically.
     The installer: `calamares-raze-launch`. Console login: user "nixos", no password.
   '';
 
@@ -59,9 +61,30 @@ in
   security.polkit.enable = true;
   programs.partition-manager.enable = true;
 
-  # VM guest helpers for the most common test environments.
-  services.qemuGuest.enable = true;
-  services.spice-vdagentd.enable = true;
+  # VM guest helpers for the most common test environments, as r6 services (they
+  # idle when the VM does not provide the device).
+  raze.r6.services = {
+    qemu-ga = {
+      description = "QEMU guest agent";
+      depends = [ "udev-settle" ];
+      restart = "always";
+      command = [ "${pkgs.runtimeShell}" "-c" ''
+        dev=/dev/virtio-ports/org.qemu.guest_agent.0
+        [ -e $dev ] || exec ${pkgs.coreutils}/bin/sleep infinity
+        exec ${pkgs.qemu_kvm.ga}/bin/qemu-ga -m virtio-serial -p $dev
+      '' ];
+    };
+    spice-vdagentd = {
+      description = "SPICE guest agent daemon";
+      depends = [ "udev-settle" ];
+      restart = "always";
+      command = [ "${pkgs.runtimeShell}" "-c" ''
+        [ -e /dev/virtio-ports/com.redhat.spice.0 ] || exec ${pkgs.coreutils}/bin/sleep infinity
+        mkdir -p /run/spice-vdagentd
+        exec ${pkgs.spice-vdagent}/bin/spice-vdagentd -x
+      '' ];
+    };
+  };
 
   networking.hostName = lib.mkForce "raze-live";
   # Raze installs from its own pinned flake (/etc/raze/source), not a channel.
