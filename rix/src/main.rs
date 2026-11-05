@@ -10,7 +10,14 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 
 const SYSTEM_FLAKE: &str = "/etc/nixos";
-const PKGS: &str = "nixpkgs";
+/// The package source: the `nixpkgs` registry entry (pinned on Raze systems), or
+/// any flake reference given in RIX_NIXPKGS.
+fn pkgs_ref() -> String {
+    std::env::var("RIX_NIXPKGS")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| "nixpkgs".into())
+}
 
 const USAGE: &str = "usage: rix <command> [args]
 
@@ -100,7 +107,13 @@ fn die(msg: &str) -> ! {
 fn nixpkgs_key() -> Result<String, String> {
     let out = capture(
         "nix",
-        &["flake", "metadata", PKGS, "--json", "--no-write-lock-file"],
+        &[
+            "flake",
+            "metadata",
+            &pkgs_ref(),
+            "--json",
+            "--no-write-lock-file",
+        ],
     )?;
     let v: serde_json::Value = serde_json::from_str(&out).map_err(|e| e.to_string())?;
     v["locked"]["narHash"]
@@ -110,17 +123,17 @@ fn nixpkgs_key() -> Result<String, String> {
 }
 
 fn build_index(key: &str) -> Result<index::Index, String> {
-    eprintln!("rix: building package index for {PKGS} ({key}); this evaluates nixpkgs once and takes a minute…");
+    eprintln!("rix: building package index for {} ({key}); this evaluates nixpkgs once and takes a minute…", pkgs_ref());
     eprint_delegate(&[
         "nix".into(),
         "search".into(),
         "--json".into(),
-        PKGS.into(),
+        pkgs_ref(),
         "^".into(),
     ]);
     let json = capture(
         "nix",
-        &["search", "--json", "--no-write-lock-file", PKGS, "^"],
+        &["search", "--json", "--no-write-lock-file", &pkgs_ref(), "^"],
     )?;
     let idx = index::Index::from_nix_search_json(key, &json)?;
     let path = index::index_path(key);
@@ -242,15 +255,16 @@ fn resolve_installable(pkg: &str, idx: Option<&index::Index>) -> String {
                 .map(|e| e.attr.clone())
                 .collect();
             if sugg.is_empty() {
-                die(&format!("no package '{pkg}' in {PKGS}"));
+                die(&format!("no package '{pkg}' in {}", pkgs_ref()));
             }
             die(&format!(
-                "no package '{pkg}' in {PKGS}; did you mean: {}?",
+                "no package '{pkg}' in {}; did you mean: {}?",
+                pkgs_ref(),
                 sugg.join(", ")
             ));
         }
     }
-    format!("{PKGS}#{pkg}")
+    format!("{}#{pkg}", pkgs_ref())
 }
 
 fn cmd_verify(paths: &[String]) -> ExitCode {

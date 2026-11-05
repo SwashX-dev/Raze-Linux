@@ -23,12 +23,11 @@ in
   raze.autologinUser = "nixos";
 
   isoImage = {
-    isoName = lib.mkForce "raze-linux-v${razeVersion}-x86_64.iso";
     volumeID = "RAZE_${lib.replaceStrings [ "." ] [ "_" ] razeVersion}";
     appendToMenuLabel = " Live";
-    # zstd decompresses several times faster than xz, which shortens live boot and
-    # application start-up at the cost of a somewhat larger image.
-    squashfsCompression = "zstd -Xcompression-level 15";
+    # xz: zstd -15 produced a 2.40 GB image, over GitHub's 2 GiB release asset limit.
+    # xz decompresses more slowly, which only affects the live session.
+    squashfsCompression = "xz -Xdict-size 100%";
     storeContents = [ reference razeSelf.inputs.nixpkgs.outPath ];
     includeSystemBuildDependencies = false;
     splashImage = "${pkgs.raze-branding}/share/backgrounds/raze/wallpaper-1080.png";
@@ -36,6 +35,7 @@ in
     grubTheme = null;
   };
   image.baseName = lib.mkForce "raze-linux-v${razeVersion}-x86_64";
+  image.fileName = lib.mkForce "raze-linux-v${razeVersion}-x86_64.iso";
   system.nixos.tags = [ "live" ];
 
   # Live user: passwordless sudo-rs (installation media only).

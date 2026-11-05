@@ -32,7 +32,7 @@
         "tooltip-format": "{ifname}: {ipaddr}/{cidr} via {gwaddr}",
         "on-click": "foot nmtui"
     },
-    "pulseaudio": { "format": "VOL {volume}%", "format-muted": "muted", "on-click": "pavucontrol" },
+    "pulseaudio": { "format": "VOL {volume}%", "format-muted": "muted", "on-click": "foot wiremix" },
     "battery": { "format": "BAT {capacity}%", "states": { "warning": 25, "critical": 10 } },
     "custom/power": { "format": "⏻", "tooltip-format": "Power menu", "on-click": "raze-power-menu" }
 }

@@ -1,0 +1,18 @@
+name: kernel-build
+on:
+  workflow_dispatch:
+  push:
+    paths: [kernel/**]
+jobs:
+  minimal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: experimental-features = nix-command flakes
+      - name: Build the Raze Minimal kernel (7.3.1, custom config)
+        run: nix build -L .#kernel-minimal
+      - name: Show resulting config differences
+        run: nix build .#kernel-minimal.configfile -o config && grep -c '^CONFIG_.*=y' config

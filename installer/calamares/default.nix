@@ -1,12 +1,11 @@
 # Raze Calamares extensions: settings, module configuration, the `raze` job module and
 # branding. `calamares-raze` (passthru) is Calamares wrapped to use them.
-{ lib, stdenvNoCC, calamares, glibcLocales, resvg, raze-branding, version }:
+{ lib, stdenvNoCC, runCommand, makeWrapper, calamares, glibcLocales, raze-branding, version }:
 let
   ext = stdenvNoCC.mkDerivation {
     pname = "raze-calamares-extensions";
     inherit version;
     src = lib.fileset.toSource { root = ./.; fileset = lib.fileset.unions [ ./etc ./modules ./branding ]; };
-    nativeBuildInputs = [ resvg ];
     dontConfigure = true;
     dontBuild = true;
     installPhase = ''
@@ -25,13 +24,15 @@ let
       cp ${raze-branding}/share/backgrounds/raze/wallpaper-1080.png $b/images/raze.png
       runHook postInstall
     '';
-    passthru.calamares = calamares.override {
-      extraWrapperArgs = [
-        "--prefix XDG_DATA_DIRS : ${ext}/share"
-        "--prefix XDG_CONFIG_DIRS : ${ext}/etc"
-        "--add-flag --xdg-config"
-      ];
-    };
+    # Wrap the binary-cached Calamares instead of overriding its build (an override
+    # recompiled Calamares whenever these files changed).
+    passthru.calamares = runCommand "calamares-raze-${version}" { nativeBuildInputs = [ makeWrapper ]; } ''
+      makeWrapper ${calamares}/bin/calamares $out/bin/calamares \
+        --prefix XDG_DATA_DIRS : ${ext}/share \
+        --prefix XDG_CONFIG_DIRS : ${ext}/etc \
+        --add-flags --xdg-config
+      ln -s ${calamares}/share $out/share
+    '';
     meta = {
       description = "Raze Linux installer configuration for Calamares";
       license = lib.licenses.mit;

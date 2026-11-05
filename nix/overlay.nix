@@ -46,6 +46,8 @@ in
 
   raze-branding = final.callPackage ../distro/branding { inherit version; };
 
+  raze-gpu-check = final.callPackage ../distro/gpu-check { inherit version; };
+
   raze-calamares-extensions = final.callPackage ../installer/calamares { inherit version; };
 
   # The Raze source tree, copied onto installed systems so /etc/nixos can build from it

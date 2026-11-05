@@ -77,7 +77,7 @@ in
         slurp
         wl-clipboard
         brightnessctl
-        pavucontrol
+        wiremix
         pcmanfm
         lxqt.lxqt-policykit
         xwayland-satellite
@@ -120,7 +120,7 @@ in
       programs.niri.enable = true;
       environment.etc."niri/config.kdl".source = "${pkgs.raze-branding}/share/raze/desktop/niri/config.kdl";
       # Software-rendering fallback session (see raze-session).
-      environment.systemPackages = with pkgs; [ sway mesa-demos ];
+      environment.systemPackages = with pkgs; [ sway raze-gpu-check ];
       environment.etc."sway/raze.conf".source = "${pkgs.raze-branding}/share/raze/desktop/sway/raze.conf";
     })
 

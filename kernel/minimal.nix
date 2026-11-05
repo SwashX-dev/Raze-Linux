@@ -16,7 +16,7 @@ let
       # Fail if a requested option did not survive dependency resolution.
       missing=0
       while IFS= read -r line; do
-        case "$line" in ''|\#*) continue ;; esac
+        case "$line" in '''|\#*) continue ;; esac
         key=''${line%%=*}; val=''${line#*=}
         if [ "$val" = n ]; then
           grep -q "^# $key is not set" .config || grep -q "^$key=n" .config || { echo "not disabled: $key"; missing=1; }

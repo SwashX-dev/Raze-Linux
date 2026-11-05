@@ -1,0 +1,25 @@
+name: benchmarks
+on:
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: Boots per init system
+        default: "10"
+jobs:
+  r6-vs-s6:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: experimental-features = nix-command flakes
+      - run: nix build .#core-image -o result-core
+      - run: nix shell nixpkgs#qemu_kvm nixpkgs#python3 -c python3 benchmarks/core-init.py result-core --runs ${{ inputs.runs }} --json core-init.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: core-init.json

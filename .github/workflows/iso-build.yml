@@ -1,0 +1,32 @@
+# Building the ISO needs ~40 GB of free disk for the Nix store. Standard hosted
+# runners have less, so this workflow frees space first and can be pointed at a
+# larger or self-hosted runner with the ISO_RUNNER repository variable.
+name: iso-build
+on:
+  workflow_dispatch:
+jobs:
+  iso:
+    runs-on: ${{ vars.ISO_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 360
+    steps:
+      - name: Free disk space
+        if: ${{ !vars.ISO_RUNNER }}
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force || true
+          df -h /
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: experimental-features = nix-command flakes
+      - run: nix build -L .#iso
+      - run: |
+          cp result/iso/*.iso .
+          sha256sum *.iso > SHA256SUMS
+          cat SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: raze-iso
+          path: |
+            *.iso
+            SHA256SUMS

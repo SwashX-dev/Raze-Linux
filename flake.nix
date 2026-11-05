@@ -29,7 +29,7 @@
       overlays.default = final: prev: import ./nix/overlay.nix { inherit version; } final prev;
 
       packages.${system} = {
-        inherit (pkgs) r6 rix raze-calamares-extensions raze-branding;
+        inherit (pkgs) r6 rix raze-calamares-extensions raze-branding raze-gpu-check;
         default = pkgs.r6;
 
         # Raze Core: kernel + initramfs booted with r6 as the genuine PID 1.

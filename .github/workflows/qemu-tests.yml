@@ -1,0 +1,29 @@
+name: qemu-tests
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+  workflow_dispatch:
+jobs:
+  vm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            system-features = nixos-test benchmark big-parallel kvm
+      - name: Raze Core boots with r6 as PID 1
+        run: nix build -L .#checks.x86_64-linux.core-boot
+      - name: Raze Desktop integration test
+        run: nix build -L .#checks.x86_64-linux.desktop
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: vm-test-output
+          path: result*/

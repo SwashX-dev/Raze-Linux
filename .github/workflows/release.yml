@@ -1,0 +1,50 @@
+# Release pipeline: build from the tag, run the checks, build the ISO, verify,
+# checksum and upload. Needs a runner with ~40 GB free (see iso-build.yml). The
+# release job refuses to publish if any check fails.
+name: release
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to (re)build
+        required: true
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ${{ vars.ISO_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 480
+    steps:
+      - name: Free disk space
+        if: ${{ !vars.ISO_RUNNER }}
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            system-features = nixos-test benchmark big-parallel kvm
+      - name: Checks (unit, integration, VM)
+        run: nix build -L .#r6 .#rix .#checks.x86_64-linux.core-boot .#checks.x86_64-linux.desktop
+      - name: Build ISO
+        run: nix build -L .#iso
+      - name: Verify and checksum
+        run: |
+          iso=$(ls result/iso/*.iso)
+          test "$(stat -c %s "$iso")" -lt 2147483648 || { echo "ISO exceeds the 2 GiB release asset limit"; exit 1; }
+          cp "$iso" .
+          sha256sum "$(basename "$iso")" > SHA256SUMS
+          sha256sum -c SHA256SUMS
+      - name: Upload to the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: gh release upload "$TAG" *.iso SHA256SUMS --clobber
