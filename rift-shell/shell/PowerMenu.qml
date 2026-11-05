@@ -7,7 +7,9 @@ OverlayPanel {
     ns: "rift-shell-power"
     dim: 0.55
     onCloseRequested: Shell.powerMenuOpen = false
-    onOpenChanged: if (open) { current = 0; row.forceActiveFocus(); }
+    function shown() { current = 0; row.forceActiveFocus(); }
+    onOpenChanged: if (open) shown()
+    Component.onCompleted: if (open) shown()
 
     readonly property var actions: [
         { icon: "lock", label: "Lock", cmd: "rift-shell lock" },

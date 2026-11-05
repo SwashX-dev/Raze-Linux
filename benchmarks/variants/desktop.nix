@@ -5,13 +5,13 @@
 let
   flake = builtins.getFlake (toString ../..);
   system = flake.nixosConfigurations.raze-desktop.extendModules {
-    modules = [ {
-      raze.desktop = desktop;
+    modules = [ ({ lib, ... }: {
+      raze.desktop = lib.mkForce desktop;
       raze.init = init;
       raze.autologinUser = "raze";
-      services.qemuGuest.enable = init == "systemd";
-      virtualisation.vmVariant.virtualisation.memorySize = 4096;
-    } ];
+      services.qemuGuest.enable = lib.mkIf (init == "systemd") true;
+      virtualisation.vmVariant.virtualisation.memorySize = lib.mkForce 4096;
+    }) ];
   };
 in
 system.config.system.build.vm

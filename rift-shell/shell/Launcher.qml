@@ -9,7 +9,10 @@ OverlayPanel {
     open: Shell.launcherOpen
     ns: "rift-shell-launcher"
     onCloseRequested: Shell.launcherOpen = false
-    onOpenChanged: if (open) { search.text = ""; list.currentIndex = 0; search.forceActiveFocus(); }
+    // Created on demand (shell.qml), so also initialise when created already open.
+    function shown() { search.text = ""; list.currentIndex = 0; search.forceActiveFocus(); }
+    onOpenChanged: if (open) shown()
+    Component.onCompleted: if (open) shown()
 
     readonly property string query: search.text.trim()
     readonly property bool calc: query.startsWith("=")

@@ -1,0 +1,342 @@
+{
+  "runs": {
+    "r6-init": [
+      {
+        "init": "r6-init",
+        "wall_to_selftest_s": 1.669,
+        "services_started_ms": 246.061,
+        "pid1_start_ms": 210.523,
+        "pid1_to_services_ms": 35.538,
+        "supervision_procs": 2,
+        "supervision_rss_kib": 1832,
+        "supervision_pss_kib": 1820,
+        "mem_used_kib": 52580,
+        "processes": 85
+      },
+      {
+        "init": "r6-init",
+        "wall_to_selftest_s": 1.639,
+        "services_started_ms": 233.287,
+        "pid1_start_ms": 200.56,
+        "pid1_to_services_ms": 32.727,
+        "supervision_procs": 2,
+        "supervision_rss_kib": 1868,
+        "supervision_pss_kib": 1856,
+        "mem_used_kib": 54668,
+        "processes": 85
+      },
+      {
+        "init": "r6-init",
+        "wall_to_selftest_s": 1.631,
+        "services_started_ms": 233.482,
+        "pid1_start_ms": 202.129,
+        "pid1_to_services_ms": 31.353,
+        "supervision_procs": 2,
+        "supervision_rss_kib": 1768,
+        "supervision_pss_kib": 1756,
+        "mem_used_kib": 49712,
+        "processes": 85
+      },
+      {
+        "init": "r6-init",
+        "wall_to_selftest_s": 1.644,
+        "services_started_ms": 236.962,
+        "pid1_start_ms": 202.338,
+        "pid1_to_services_ms": 34.624,
+        "supervision_procs": 2,
+        "supervision_rss_kib": 1820,
+        "supervision_pss_kib": 1808,
+        "mem_used_kib": 56840,
+        "processes": 85
+      },
+      {
+        "init": "r6-init",
+        "wall_to_selftest_s": 1.646,
+        "services_started_ms": 232.166,
+        "pid1_start_ms": 199.132,
+        "pid1_to_services_ms": 33.034,
+        "supervision_procs": 2,
+        "supervision_rss_kib": 1864,
+        "supervision_pss_kib": 1852,
+        "mem_used_kib": 49292,
+        "processes": 85
+      },
+      {
+        "init": "r6-init",
+        "wall_to_selftest_s": 1.637,
+        "services_started_ms": 238.302,
+        "pid1_start_ms": 204.487,
+        "pid1_to_services_ms": 33.815,
+        "supervision_procs": 2,
+        "supervision_rss_kib": 1848,
+        "supervision_pss_kib": 1836,
+        "mem_used_kib": 50524,
+        "processes": 85
+      },
+      {
+        "init": "r6-init",
+        "wall_to_selftest_s": 1.643,
+        "services_started_ms": 238.421,
+        "pid1_start_ms": 206.037,
+        "pid1_to_services_ms": 32.384,
+        "supervision_procs": 2,
+        "supervision_rss_kib": 1828,
+        "supervision_pss_kib": 1816,
+        "mem_used_kib": 51148,
+        "processes": 85
+      },
+      {
+        "init": "r6-init",
+        "wall_to_selftest_s": 1.649,
+        "services_started_ms": 229.822,
+        "pid1_start_ms": 198.5,
+        "pid1_to_services_ms": 31.322,
+        "supervision_procs": 2,
+        "supervision_rss_kib": 1880,
+        "supervision_pss_kib": 1868,
+        "mem_used_kib": 50312,
+        "processes": 85
+      },
+      {
+        "init": "r6-init",
+        "wall_to_selftest_s": 1.648,
+        "services_started_ms": 232.737,
+        "pid1_start_ms": 200.588,
+        "pid1_to_services_ms": 32.149,
+        "supervision_procs": 2,
+        "supervision_rss_kib": 1800,
+        "supervision_pss_kib": 1788,
+        "mem_used_kib": 50772,
+        "processes": 85
+      },
+      {
+        "init": "r6-init",
+        "wall_to_selftest_s": 1.644,
+        "services_started_ms": 238.211,
+        "pid1_start_ms": 199.859,
+        "pid1_to_services_ms": 38.352,
+        "supervision_procs": 2,
+        "supervision_rss_kib": 1800,
+        "supervision_pss_kib": 1788,
+        "mem_used_kib": 59700,
+        "processes": 85
+      }
+    ],
+    "s6-init": [
+      {
+        "init": "s6-init",
+        "wall_to_selftest_s": 0.634,
+        "services_started_ms": 230.495,
+        "pid1_start_ms": 198.867,
+        "pid1_to_services_ms": 31.628,
+        "supervision_procs": 27,
+        "supervision_rss_kib": 3160,
+        "supervision_pss_kib": 1211,
+        "mem_used_kib": 53852,
+        "processes": 111
+      },
+      {
+        "init": "s6-init",
+        "wall_to_selftest_s": 0.664,
+        "services_started_ms": 234.669,
+        "pid1_start_ms": 203.153,
+        "pid1_to_services_ms": 31.516,
+        "supervision_procs": 27,
+        "supervision_rss_kib": 3176,
+        "supervision_pss_kib": 1227,
+        "mem_used_kib": 53948,
+        "processes": 111
+      },
+      {
+        "init": "s6-init",
+        "wall_to_selftest_s": 0.652,
+        "services_started_ms": 241.748,
+        "pid1_start_ms": 210.124,
+        "pid1_to_services_ms": 31.624,
+        "supervision_procs": 27,
+        "supervision_rss_kib": 3180,
+        "supervision_pss_kib": 1231,
+        "mem_used_kib": 54040,
+        "processes": 111
+      },
+      {
+        "init": "s6-init",
+        "wall_to_selftest_s": 0.651,
+        "services_started_ms": 236.634,
+        "pid1_start_ms": 204.5,
+        "pid1_to_services_ms": 32.134,
+        "supervision_procs": 27,
+        "supervision_rss_kib": 3156,
+        "supervision_pss_kib": 1206,
+        "mem_used_kib": 53624,
+        "processes": 111
+      },
+      {
+        "init": "s6-init",
+        "wall_to_selftest_s": 0.632,
+        "services_started_ms": 229.583,
+        "pid1_start_ms": 200.215,
+        "pid1_to_services_ms": 29.368,
+        "supervision_procs": 27,
+        "supervision_rss_kib": 3168,
+        "supervision_pss_kib": 1219,
+        "mem_used_kib": 53704,
+        "processes": 111
+      },
+      {
+        "init": "s6-init",
+        "wall_to_selftest_s": 0.65,
+        "services_started_ms": 229.31,
+        "pid1_start_ms": 197.602,
+        "pid1_to_services_ms": 31.708,
+        "supervision_procs": 27,
+        "supervision_rss_kib": 3160,
+        "supervision_pss_kib": 1211,
+        "mem_used_kib": 52996,
+        "processes": 111
+      },
+      {
+        "init": "s6-init",
+        "wall_to_selftest_s": 0.643,
+        "services_started_ms": 233.151,
+        "pid1_start_ms": 202.261,
+        "pid1_to_services_ms": 30.89,
+        "supervision_procs": 27,
+        "supervision_rss_kib": 3176,
+        "supervision_pss_kib": 1227,
+        "mem_used_kib": 53044,
+        "processes": 111
+      },
+      {
+        "init": "s6-init",
+        "wall_to_selftest_s": 0.654,
+        "services_started_ms": 235.65,
+        "pid1_start_ms": 201.167,
+        "pid1_to_services_ms": 34.483,
+        "supervision_procs": 27,
+        "supervision_rss_kib": 3160,
+        "supervision_pss_kib": 1211,
+        "mem_used_kib": 52708,
+        "processes": 111
+      },
+      {
+        "init": "s6-init",
+        "wall_to_selftest_s": 0.631,
+        "services_started_ms": 230.223,
+        "pid1_start_ms": 196.874,
+        "pid1_to_services_ms": 33.349,
+        "supervision_procs": 27,
+        "supervision_rss_kib": 3208,
+        "supervision_pss_kib": 1259,
+        "mem_used_kib": 52248,
+        "processes": 111
+      },
+      {
+        "init": "s6-init",
+        "wall_to_selftest_s": 0.646,
+        "services_started_ms": 231.071,
+        "pid1_start_ms": 200.139,
+        "pid1_to_services_ms": 30.932,
+        "supervision_procs": 27,
+        "supervision_rss_kib": 3164,
+        "supervision_pss_kib": 1215,
+        "mem_used_kib": 53356,
+        "processes": 111
+      }
+    ]
+  },
+  "summary": {
+    "r6-init": {
+      "pid1_to_services_ms": {
+        "median": 32.88,
+        "mean": 33.53,
+        "stdev": 2.17,
+        "min": 31.322,
+        "max": 38.352
+      },
+      "services_started_ms": {
+        "median": 235.22,
+        "mean": 235.95,
+        "stdev": 4.66,
+        "min": 229.822,
+        "max": 246.061
+      },
+      "supervision_rss_kib": {
+        "median": 1830.0,
+        "mean": 1830.8,
+        "stdev": 35.23,
+        "min": 1768,
+        "max": 1880
+      },
+      "supervision_pss_kib": {
+        "median": 1818.0,
+        "mean": 1818.8,
+        "stdev": 35.23,
+        "min": 1756,
+        "max": 1868
+      },
+      "supervision_procs": {
+        "median": 2.0,
+        "mean": 2,
+        "stdev": 0.0,
+        "min": 2,
+        "max": 2
+      },
+      "mem_used_kib": {
+        "median": 50960.0,
+        "mean": 52554.8,
+        "stdev": 3446.77,
+        "min": 49292,
+        "max": 59700
+      }
+    },
+    "s6-init": {
+      "pid1_to_services_ms": {
+        "median": 31.63,
+        "mean": 31.76,
+        "stdev": 1.39,
+        "min": 29.368,
+        "max": 34.483
+      },
+      "services_started_ms": {
+        "median": 232.11,
+        "mean": 233.25,
+        "stdev": 3.97,
+        "min": 229.31,
+        "max": 241.748
+      },
+      "supervision_rss_kib": {
+        "median": 3166.0,
+        "mean": 3170.8,
+        "stdev": 15.44,
+        "min": 3156,
+        "max": 3208
+      },
+      "supervision_pss_kib": {
+        "median": 1217.0,
+        "mean": 1221.7,
+        "stdev": 15.55,
+        "min": 1206,
+        "max": 1259
+      },
+      "supervision_procs": {
+        "median": 27.0,
+        "mean": 27,
+        "stdev": 0.0,
+        "min": 27,
+        "max": 27
+      },
+      "mem_used_kib": {
+        "median": 53490.0,
+        "mean": 53352,
+        "stdev": 589.88,
+        "min": 52248,
+        "max": 54040
+      }
+    },
+    "retries": {
+      "r6-init": 0,
+      "s6-init": 0
+    }
+  }
+}

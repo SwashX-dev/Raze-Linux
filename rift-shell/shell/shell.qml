@@ -18,10 +18,11 @@ ShellRoot {
         }
     }
 
-    Launcher {}
-    ControlCenter {}
-    PowerMenu {}
-    Clipboard {}
+    // Overlays exist only while open: memory stays low while the desktop is idle.
+    LazyLoader { active: Shell.launcherOpen; Launcher {} }
+    LazyLoader { active: Shell.controlCenterOpen; ControlCenter {} }
+    LazyLoader { active: Shell.powerMenuOpen; PowerMenu {} }
+    LazyLoader { active: Shell.clipboardOpen; Clipboard {} }
     NotificationPopups {}
     Osd { id: osd }
     PolkitDialog {}

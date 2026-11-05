@@ -17,7 +17,9 @@ OverlayPanel {
     ns: "rift-shell-control-center"
     dim: 0
     onCloseRequested: Shell.controlCenterOpen = false
-    onOpenChanged: if (open) { brightnessRead.running = true; uptime.reload(); page = "main"; }
+    function shown() { brightnessRead.running = true; uptime.reload(); page = "main"; }
+    onOpenChanged: if (open) shown()
+    Component.onCompleted: if (open) shown()
 
     property string page: "main"   // main | wifi | bluetooth
     property real brightness: -1

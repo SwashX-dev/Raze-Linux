@@ -9,7 +9,9 @@ OverlayPanel {
     open: Shell.clipboardOpen
     ns: "rift-shell-clipboard"
     onCloseRequested: Shell.clipboardOpen = false
-    onOpenChanged: if (open) { filter.text = ""; reader.running = true; filter.forceActiveFocus(); }
+    function shown() { filter.text = ""; reader.running = true; filter.forceActiveFocus(); }
+    onOpenChanged: if (open) shown()
+    Component.onCompleted: if (open) shown()
 
     property var entries: []
     readonly property var shown: entries.filter(e => e.text.toLowerCase().includes(filter.text.toLowerCase())).slice(0, 200)

@@ -8,9 +8,10 @@ QEMU runs a virtio-vga-gl (virgl) GPU on egl-headless, so both compositors rende
 GLES on the same virtual GPU. Per run, after the session is up and one foot window is
 open and things have settled for 20 s:
 
-  idle      compositor CPU time over 60 s, compositor RSS/PSS
+  idle      compositor and whole-session CPU time over 60 s, compositor RSS/PSS
   session   PSS of every process of the session user; MemTotal - MemAvailable
-  workload  compositor CPU time while a terminal updates ~20 times/s for 10 s
+  workload  compositor and session CPU time while a terminal prints a line every
+            50 ms for 10 s (the harness checks that the window opened)
 
 The compositor process is `rift` or `niri`; the session's shell is Rift Shell
 (quickshell) or waybar + mako + swaybg respectively.
@@ -42,8 +43,10 @@ MEASURE = r"""
 tck=$(getconf CLK_TCK)
 p=$(pgrep -o -u raze -x COMP)
 cpu() { awk '{print $14 + $15}' /proc/$1/stat; }
-a=$(cpu $p); sleep SECS; b=$(cpu $p)
+scpu() { s=0; for d in $(pgrep -u raze); do v=$(awk '{print $14 + $15}' /proc/$d/stat 2>/dev/null); s=$((s + ${v:-0})); done; echo $s; }
+a=$(cpu $p); sa=$(scpu); sleep SECS; b=$(cpu $p); sb=$(scpu)
 echo "cpu_s=$(echo "$a $b $tck" | awk '{printf "%.3f", ($2 - $1) / $3}')"
+echo "session_cpu_s=$(echo "$sa $sb $tck" | awk '{printf "%.3f", ($2 - $1) / $3}')"
 echo "rss_kib=$(awk '/VmRSS/{print $2}' /proc/$p/status)"
 echo "pss_kib=$(awk '/^Pss:/{print $2}' /proc/$p/smaps_rollup)"
 s=0; for d in $(pgrep -u raze); do v=$(awk '/^Pss:/{print $2}' /proc/$d/smaps_rollup 2>/dev/null); s=$((s + ${v:-0})); done
@@ -86,16 +89,21 @@ def run(vm, disk, tmp):
         renderer = agent.sh(as_user("rift msg version") if comp == "rift" else "true").strip()
         time.sleep(20)
         idle = dict(l.split("=", 1) for l in agent.sh(MEASURE.replace("COMP", comp).replace("SECS", "60"), timeout=90).split())
-        load = "for i in $(seq 1 200); do date +%T.%N; sleep 0.05; done"
-        spawn = (f"rift msg action spawn \"foot sh -c '{load}'\"" if comp == "rift"
-                 else f"niri msg action spawn -- foot sh -c \"{load}\"")
-        agent.sh(as_user(spawn))
+        # The workload: a terminal printing a line every 50 ms for 10 s.
+        agent.sh("printf '#!/bin/sh\\nfor i in $(seq 1 220); do date +%%T.%%N; sleep 0.05; done\\n' > /tmp/raze-load.sh; chmod 755 /tmp/raze-load.sh")
+        before = agent.sh(as_user("rift msg windows" if comp == "rift" else "niri msg windows")).count("foot")
+        agent.sh(as_user("rift msg action spawn foot /tmp/raze-load.sh" if comp == "rift"
+                         else "niri msg action spawn -- foot /tmp/raze-load.sh"))
         time.sleep(1)
+        after = agent.sh(as_user("rift msg windows" if comp == "rift" else "niri msg windows")).count("foot")
+        if after <= before:
+            raise RuntimeError(f"{comp}: workload window did not open")
         work = dict(l.split("=", 1) for l in agent.sh(MEASURE.replace("COMP", comp).replace("SECS", "10"), timeout=40).split())
         return {"compositor": comp, "renderer": renderer,
                 "idle_cpu_s_per_60s": float(idle["cpu_s"]), "rss_kib": int(idle["rss_kib"]),
                 "pss_kib": int(idle["pss_kib"]), "session_pss_kib": int(idle["session_pss_kib"]),
-                "mem_used_kib": int(idle["mem_used_kib"]), "workload_cpu_s_per_10s": float(work["cpu_s"])}
+                "mem_used_kib": int(idle["mem_used_kib"]), "session_idle_cpu_s_per_60s": float(idle["session_cpu_s"]),
+                "workload_cpu_s_per_10s": float(work["cpu_s"]), "workload_session_cpu_s_per_10s": float(work["session_cpu_s"])}
     finally:
         di.stop(proc)
 
@@ -121,7 +129,8 @@ def main():
     summary = {}
     for n, rs in results.items():
         s = {"compositor": rs[0]["compositor"], "renderer": rs[0]["renderer"], "runs": len(rs)}
-        for k in ("idle_cpu_s_per_60s", "rss_kib", "pss_kib", "session_pss_kib", "mem_used_kib", "workload_cpu_s_per_10s"):
+        for k in ("idle_cpu_s_per_60s", "session_idle_cpu_s_per_60s", "rss_kib", "pss_kib", "session_pss_kib",
+                  "mem_used_kib", "workload_cpu_s_per_10s", "workload_session_cpu_s_per_10s"):
             v = [r[k] for r in rs]
             s[k] = {"median": statistics.median(v), "stdev": statistics.stdev(v) if len(v) > 1 else 0.0}
         summary[n] = s
