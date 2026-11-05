@@ -1,15 +1,16 @@
 # Desktop selection. Exactly one desktop is installed; only the services it needs are
-# enabled. Scrollable-tiling Wayland sessions (rift, niri) share the Raze session
+# enabled. Scrollable-tiling Wayland sessions (niri and its fallback) share the Raze session
 # tooling: waybar, fuzzel, foot, mako, swaybg, swaylock.
 { config, lib, pkgs, ... }:
 let
   cfg = config.raze;
   d = cfg.desktop;
   graphical = d != "none";
-  waylandTiling = builtins.elem d [ "rift" "niri" "hyprland" "dwl" ];
+  waylandTiling = builtins.elem d [ "niri" "hyprland" "dwl" ];
   greetdSession = {
-    rift = "rift-session";
-    niri = "niri-session";
+    # raze-session runs niri on hardware-accelerated GPUs and falls back to a
+    # software-rendered sway session elsewhere (niri refuses software renderers).
+    niri = "raze-session";
     hyprland = "Hyprland";
     dwl = "dwl";
   }.${d} or null;
@@ -17,12 +18,11 @@ in
 {
   options.raze = {
     desktop = lib.mkOption {
-      type = lib.types.enum [ "rift" "niri" "hyprland" "dwl" "xfce" "lxqt" "plasma" "gnome" "dwm" "none" ];
+      type = lib.types.enum [ "niri" "hyprland" "dwl" "xfce" "lxqt" "plasma" "gnome" "dwm" "none" ];
       default = "niri";
       description = ''
-        The desktop session to install. "niri" is the default until Rift meets the
-        release criteria (see docs/architecture/rift.md); "rift" installs the
-        experimental Rift compositor.
+        The desktop session to install. "niri" is the default; Raze's own Rift
+        compositor is not yet offered here (see docs/architecture/rift.md).
       '';
     };
     autologinUser = lib.mkOption {
@@ -45,9 +45,16 @@ in
       security.polkit.enable = true;
       services.udisks2.enable = true;
       services.gvfs.enable = true;
+      # gvfs without the SMB backend: samba alone is ~90 MiB.
+      services.gvfs.package = pkgs.gvfs.override { samba = null; };
+      # Speech synthesis pulls in ~700 MiB of voices; opt-in for those who need it.
+      services.speechd.enable = lib.mkOverride 900 false;
       services.upower.enable = true;
       fonts = {
-        packages = with pkgs; [ inter jetbrains-mono noto-fonts noto-fonts-color-emoji ];
+        # Explicit, small font set (the NixOS default set adds ~150 MiB incl. CJK).
+        # CJK users: add noto-fonts-cjk-sans to fonts.packages.
+        enableDefaultPackages = lib.mkForce false;
+        packages = with pkgs; [ inter jetbrains-mono noto-fonts noto-fonts-color-emoji dejavu_fonts ];
         fontconfig.defaultFonts = {
           sansSerif = [ "Inter" "Noto Sans" ];
           monospace = [ "JetBrains Mono" ];
@@ -112,12 +119,9 @@ in
     (lib.mkIf (d == "niri") {
       programs.niri.enable = true;
       environment.etc."niri/config.kdl".source = "${pkgs.raze-branding}/share/raze/desktop/niri/config.kdl";
-    })
-
-    (lib.mkIf (d == "rift") {
-      environment.systemPackages = [ pkgs.rift ];
-      services.displayManager.sessionPackages = [ pkgs.rift ];
-      environment.etc."rift/config.toml".source = "${pkgs.rift}/share/rift/config.toml";
+      # Software-rendering fallback session (see raze-session).
+      environment.systemPackages = with pkgs; [ sway mesa-demos ];
+      environment.etc."sway/raze.conf".source = "${pkgs.raze-branding}/share/raze/desktop/sway/raze.conf";
     })
 
     (lib.mkIf (d == "hyprland") {

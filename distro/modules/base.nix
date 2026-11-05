@@ -49,7 +49,6 @@ in
       nixPath = [ "nixpkgs=${pkgs.path}" ];
       channel.enable = false;
     };
-    nixpkgs.config.allowUnfree = lib.mkDefault false;
 
     environment.systemPackages = with pkgs; [
       r6
@@ -71,7 +70,7 @@ in
     documentation.info.enable = false;
 
     networking.networkmanager.enable = lib.mkDefault true;
-    networking.hostName = lib.mkDefault "raze";
+    networking.hostName = lib.mkOverride 1100 "raze";
 
     users.mutableUsers = lib.mkDefault true;
 

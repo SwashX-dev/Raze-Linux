@@ -1,10 +1,10 @@
-# Boots a Raze Desktop (niri) system in a VM and checks the integrated stack:
-# sudo-rs, r6/rix availability, branding, greetd autologin into niri + waybar,
-# NetworkManager, zram, dbus-broker. Takes a screenshot of the running desktop.
+# Boots a Raze Desktop system in a VM and checks the integrated stack: sudo-rs,
+# r6/rix availability, branding, greetd autologin + waybar, NetworkManager, zram,
+# dbus-broker. The test VM has no 3D acceleration, so raze-session must pick the
+# software-rendered fallback session (sway + pixman) instead of niri.
 { pkgs, self, lib }:
 pkgs.testers.runNixOSTest {
   name = "raze-desktop";
-  node.pkgs = pkgs;
   node.specialArgs = { razeVersion = "1.0.0"; razeSelf = self; };
   nodes.machine = { ... }: {
     imports = [ self.nixosModules.raze ];
@@ -33,7 +33,7 @@ pkgs.testers.runNixOSTest {
     with subtest("Raze components and branding"):
         machine.succeed("r6 --version | grep 1.0.0")
         machine.succeed("rix --version | grep 1.0.0")
-        machine.succeed("grep -q RAZE_VERSION=1.0.0 /etc/os-release")
+        machine.succeed("grep -qE '^RAZE_VERSION=\"?1.0.0' /etc/os-release")
         machine.succeed("grep -q 'NAME=\"Raze Linux\"' /etc/os-release")
         machine.succeed("r6-activate --dir /etc/r6/services")
 
@@ -47,13 +47,21 @@ pkgs.testers.runNixOSTest {
 
     with subtest("desktop session"):
         machine.wait_for_unit("greetd.service")
-        machine.wait_until_succeeds("pgrep -u raze -x niri", timeout=120)
-        machine.wait_until_succeeds("pgrep -u raze -x waybar", timeout=60)
+        machine.fail("raze-gpu-check")
+        machine.wait_until_succeeds("pgrep -u raze -x sway", timeout=120)
+        machine.fail("pgrep -u raze -x niri")
+        machine.wait_until_succeeds("pgrep -u raze waybar", timeout=60)
+        machine.wait_until_succeeds("pgrep -u raze swaybg", timeout=60)
         machine.sleep(5)
         machine.screenshot("raze-desktop")
-        machine.succeed("su - raze -c 'XDG_RUNTIME_DIR=/run/user/$(id -u raze) WAYLAND_DISPLAY=wayland-1 foot -e true' || true")
+        machine.succeed("su - raze -c 'XDG_RUNTIME_DIR=/run/user/$(id -u raze) WAYLAND_DISPLAY=wayland-1 grim /tmp/shot.png'")
+        machine.copy_from_machine("/tmp/shot.png", "")
 
-    with subtest("rix lists generations natively"):
-        machine.succeed("rix system generations | grep -E '^\\*'")
+    with subtest("rix native hashing and store verification match Nix"):
+        p = machine.succeed("readlink -f /run/current-system/sw/bin/r6").strip().split("/bin/")[0]
+        native = machine.succeed(f"rix hash path {p}").strip()
+        reference = machine.succeed(f"nix hash path --base32 {p}").strip()
+        assert native == reference, (native, reference)
+        machine.succeed(f"rix verify {p} | grep -q '^ok'")
   '';
 }

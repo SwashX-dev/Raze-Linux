@@ -34,7 +34,7 @@ in
         minimal = pkgs.linuxPackagesFor (pkgs.callPackage ../../kernel/minimal.nix { });
       }.${cfg.profile};
       boot.kernelParams = [ "quiet" "loglevel=3" "udev.log_level=3" ];
-      boot.consoleLogLevel = 3;
+      boot.consoleLogLevel = lib.mkDefault 3;
     }
 
     (lib.mkIf (cfg.profile == "performance") {

@@ -1,0 +1,9 @@
+#!/bin/sh
+# Exit 0 if the default GBM device has a hardware-accelerated OpenGL renderer.
+# Software renderers (llvmpipe, softpipe, swrast) and missing GPUs exit 1.
+info=$(eglinfo -B -p gbm 2>/dev/null) || exit 1
+renderer=$(printf '%s\n' "$info" | grep -m1 -i 'renderer' | cut -d: -f2-)
+case "$renderer" in
+    "" | *llvmpipe* | *softpipe* | *swrast* | *[Ss]oftware*) exit 1 ;;
+esac
+exit 0

@@ -104,7 +104,7 @@ def choice(gs, key, allowed, default):
 
 
 def generate_configuration(gs):
-    desktop = choice(gs, "desktop", ["niri", "rift", "hyprland", "dwl", "xfce", "lxqt", "plasma", "gnome", "dwm"], "niri")
+    desktop = choice(gs, "desktop", ["niri", "hyprland", "dwl", "xfce", "lxqt", "plasma", "gnome", "dwm"], "niri")
     profile = choice(gs, "profile", ["desktop", "development", "minimal"], "desktop")
     if profile == "desktop" and desktop != "niri":
         profile = "custom"
@@ -123,7 +123,7 @@ def generate_configuration(gs):
     cfg += "{ config, lib, pkgs, ... }:\n\n{\n"
     cfg += "  # Installation profile: minimal | desktop | custom | development\n"
     cfg += "  raze.profile = {};\n".format(nix_string(profile))
-    cfg += "  # Desktop: niri (default) | rift | hyprland | dwl | xfce | lxqt | plasma | gnome | dwm | none\n"
+    cfg += "  # Desktop: niri (default) | hyprland | dwl | xfce | lxqt | plasma | gnome | dwm | none\n"
     cfg += "  raze.desktop = {};\n".format(nix_string(desktop if profile != "minimal" else "none"))
     cfg += "  # Kernel profile: generic | performance | legacy | minimal\n"
     cfg += '  raze.kernel.profile = "generic";\n'
@@ -236,6 +236,18 @@ def run():
                 os.chmod(p, 0o644)
     logline("desktop={} profile={}".format(desktop, profile))
     logline(cfg)
+
+    # Lock the system flake before nixos-install. Otherwise nixos-install hashes
+    # /etc/nixos, then writes flake.lock into it, and the hash no longer matches.
+    set_status("Locking system configuration", 0.07)
+    lock = subprocess.run(
+        ["nix", "--extra-experimental-features", "nix-command flakes", "flake", "lock", etc_nixos],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+    )
+    logline(lock.stdout.decode("utf-8", "replace"))
+    if lock.returncode != 0:
+        log.close()
+        return ("Could not lock the system configuration", lock.stdout.decode("utf-8", "replace")[-4000:])
 
     set_status("Installing Raze Linux", 0.08)
     cmd = [

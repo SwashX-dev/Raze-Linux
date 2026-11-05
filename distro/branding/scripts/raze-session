@@ -1,0 +1,13 @@
+#!/bin/sh
+# Raze desktop session launcher.
+#
+# niri needs a hardware-accelerated GPU: it refuses software EGL renderers and shows
+# a black screen without one (common in VMs without 3D acceleration). In that case
+# start a sway session using wlroots' pixman (CPU) renderer with the same Raze
+# tooling and keybindings. Set RAZE_SESSION=niri|software to force either.
+mode=${RAZE_SESSION:-auto}
+if [ "$mode" = niri ] || { [ "$mode" = auto ] && raze-gpu-check; }; then
+    exec niri-session
+fi
+export WLR_RENDERER=pixman WLR_NO_HARDWARE_CURSORS=1 XDG_CURRENT_DESKTOP=sway RAZE_SOFTWARE_SESSION=1
+exec sway --config /etc/sway/raze.conf
