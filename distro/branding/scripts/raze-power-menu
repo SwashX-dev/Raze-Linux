@@ -1,0 +1,15 @@
+#!/bin/sh
+# Raze power menu (fuzzel dmenu). Works under systemd and under r6 as PID 1.
+choice=$(printf 'Lock\nLog out\nSuspend\nReboot\nPower off\n' | fuzzel --dmenu --prompt "power › " --lines 5 --width 20) || exit 0
+if [ "$(cat /proc/1/comm 2>/dev/null)" = "r6-init" ]; then
+    reboot_cmd="sudo r6 reboot"; poweroff_cmd="sudo r6 poweroff"
+else
+    reboot_cmd="systemctl reboot"; poweroff_cmd="systemctl poweroff"
+fi
+case "$choice" in
+    Lock) exec swaylock -f -c 0f0f10 ;;
+    "Log out") exec niri msg action quit --skip-confirmation 2>/dev/null || exec loginctl terminate-session "$XDG_SESSION_ID" ;;
+    Suspend) exec systemctl suspend ;;
+    Reboot) exec $reboot_cmd ;;
+    "Power off") exec $poweroff_cmd ;;
+esac

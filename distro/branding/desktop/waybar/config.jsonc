@@ -1,0 +1,37 @@
+// Raze Linux waybar configuration.
+{
+    "layer": "top",
+    "position": "top",
+    "height": 30,
+    "spacing": 6,
+    "modules-left": ["custom/raze", "niri/workspaces", "niri/window"],
+    "modules-center": ["clock"],
+    "modules-right": ["custom/installer", "tray", "network", "pulseaudio", "cpu", "memory", "battery", "custom/power"],
+    "custom/raze": {
+        "format": "RAZE",
+        "tooltip-format": "Raze Linux — system information",
+        "on-click": "foot --hold fastfetch"
+    },
+    "custom/installer": {
+        "format": "  Install Raze ",
+        "exec-if": "test -e /etc/raze-live",
+        "exec": "echo",
+        "interval": "once",
+        "on-click": "calamares-raze-launch",
+        "tooltip-format": "Install Raze Linux to disk"
+    },
+    "niri/window": { "max-length": 60 },
+    "clock": { "format": "{:%a %d %b  %H:%M}", "tooltip-format": "<tt>{calendar}</tt>" },
+    "cpu": { "format": "CPU {usage}%", "interval": 5 },
+    "memory": { "format": "RAM {used:0.1f}G", "interval": 5 },
+    "network": {
+        "format-wifi": "WiFi {signalStrength}%",
+        "format-ethernet": "NET {ipaddr}",
+        "format-disconnected": "offline",
+        "tooltip-format": "{ifname}: {ipaddr}/{cidr} via {gwaddr}",
+        "on-click": "foot nmtui"
+    },
+    "pulseaudio": { "format": "VOL {volume}%", "format-muted": "muted", "on-click": "pavucontrol" },
+    "battery": { "format": "BAT {capacity}%", "states": { "warning": 25, "critical": 10 } },
+    "custom/power": { "format": "⏻", "tooltip-format": "Power menu", "on-click": "raze-power-menu" }
+}

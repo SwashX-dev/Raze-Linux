@@ -1,0 +1,6 @@
+#!/bin/sh
+# Session autostart hook. On the live ISO, open the installer once per session.
+if [ -e /etc/raze-live ] && [ ! -e "${XDG_RUNTIME_DIR:-/tmp}/raze-installer-started" ]; then
+    touch "${XDG_RUNTIME_DIR:-/tmp}/raze-installer-started"
+    exec calamares-raze-launch
+fi

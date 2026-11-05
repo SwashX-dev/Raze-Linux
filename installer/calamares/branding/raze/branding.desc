@@ -1,0 +1,36 @@
+---
+componentName:  raze
+welcomeStyleCalamares:   false
+welcomeExpandingLogo:   true
+windowExpanding:    normal
+windowSize: 900px,600px
+windowPlacement: center
+sidebar: widget
+navigation: widget
+
+strings:
+    productName:         "Raze Linux"
+    shortProductName:    Raze
+    version:             @version@
+    shortVersion:        @version@
+    versionedName:       Raze Linux @version@
+    shortVersionedName:  Raze @version@
+    bootloaderEntryName: Raze
+    productUrl:          https://github.com/SwashX-dev/Raze-Linux
+    supportUrl:          https://github.com/SwashX-dev/Raze-Linux/issues
+    knownIssuesUrl:      https://github.com/SwashX-dev/Raze-Linux/blob/main/docs/troubleshooting/known-issues.md
+    releaseNotesUrl:     https://github.com/SwashX-dev/Raze-Linux/releases
+
+images:
+    productIcon:         "logo.svg"
+    productLogo:         "logo-256.png"
+    productWelcome:      "logo.svg"
+
+style:
+   SidebarBackground:        "#0f0f10"
+   SidebarText:              "#e4e4e7"
+   SidebarTextCurrent:       "#ffffff"
+   SidebarBackgroundCurrent: "#dc2626"
+
+slideshow:               "show.qml"
+slideshowAPI: 2
