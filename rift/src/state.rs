@@ -120,6 +120,8 @@ pub struct Rift {
     pub ipc: crate::ipc::Ipc,
     pub pending_captures: Vec<crate::screencopy::PendingCapture>,
     pub pending_wlr_copies: Vec<crate::screencopy::PendingWlrCopy>,
+    /// (client, output) pairs that already received a wlr-screencopy frame.
+    pub wlr_copy_clients: std::collections::HashSet<(Option<ClientId>, String)>,
     pub capture_sessions: Vec<smithay::wayland::image_copy_capture::Session>,
     pub last_state_hash: u64,
     /// Toplevels that have not committed a buffer yet.
@@ -279,6 +281,7 @@ impl Rift {
             ipc,
             pending_captures: Vec::new(),
             pending_wlr_copies: Vec::new(),
+            wlr_copy_clients: Default::default(),
             capture_sessions: Vec::new(),
             last_state_hash: 0,
             unmapped: Vec::new(),
@@ -683,6 +686,11 @@ impl Rift {
 
     /// Housekeeping after each event-loop iteration.
     pub fn refresh(&mut self) {
+        if !self.wlr_copy_clients.is_empty() {
+            let backend = self.display_handle.backend_handle();
+            self.wlr_copy_clients
+                .retain(|(c, _)| c.as_ref().map(|c| backend.get_client_data(c.clone()).is_ok()).unwrap_or(false));
+        }
         self.space.refresh();
         self.popups.cleanup();
         for o in &self.outputs {

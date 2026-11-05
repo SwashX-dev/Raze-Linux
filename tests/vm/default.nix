@@ -9,6 +9,8 @@
   # Boot the Raze Core image with r6 as PID 1 and run its self-test.
   core-boot = pkgs.callPackage ./core-boot.nix { image = self.packages.x86_64-linux.core-image; };
 
-  # Boot the reference Raze Desktop system and check the integrated stack.
+  # Rift + Rift Shell desktop with r6 as PID 1 (the default), and with the systemd
+  # fallback (raze.init = "systemd").
   desktop = import ./desktop.nix { inherit pkgs self lib; };
+  desktop-systemd = import ./desktop.nix { inherit pkgs self lib; init = "systemd"; };
 }

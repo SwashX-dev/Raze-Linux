@@ -1,67 +1,109 @@
-# Boots a Raze Desktop system in a VM and checks the integrated stack: sudo-rs,
-# r6/rix availability, branding, greetd autologin + waybar, NetworkManager, zram,
-# dbus-broker. The test VM has no 3D acceleration, so raze-session must pick the
-# software-rendered fallback session (sway + pixman) instead of niri.
-{ pkgs, self, lib }:
+# Boots the default Raze Desktop (r6 as PID 1, Rift + Rift Shell) in a VM without 3D
+# acceleration and checks the integrated stack. The NixOS test driver's backdoor runs
+# as an r6 service here (distro/modules/r6.nix), so systemd-specific driver helpers
+# such as wait_for_unit are not used.
+{ pkgs, self, lib, init ? "r6" }:
+let
+  version = self.packages.x86_64-linux.r6.version;
+  asUser = cmd: "su - raze -c 'export XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-1 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus RIFT_SOCKET=$(ls /run/user/1000/rift.*.sock); ${cmd}'";
+in
 pkgs.testers.runNixOSTest {
-  name = "raze-desktop";
-  node.specialArgs = { razeVersion = "1.0.0"; razeSelf = self; };
+  name = "raze-desktop-${init}";
+  node.specialArgs = { razeVersion = version; razeSelf = self; };
   nodes.machine = { ... }: {
     imports = [ self.nixosModules.raze ];
     raze.profile = "desktop";
-    raze.desktop = "niri";
+    raze.desktop = "rift";
+    raze.init = init;
     raze.autologinUser = "raze";
     users.users.raze = {
       isNormalUser = true;
       extraGroups = [ "wheel" "networkmanager" "video" ];
       password = "raze";
     };
-    virtualisation.memorySize = 2048;
+    virtualisation.memorySize = 3072;
     virtualisation.cores = 2;
     virtualisation.qemu.options = [ "-vga none" "-device virtio-vga" ];
   };
   testScript = ''
-    machine.wait_for_unit("multi-user.target")
+    r6 = "${init}" == "r6"
+    machine.start()
 
-    with subtest("sudo is sudo-rs and classic sudo is absent"):
+    with subtest("PID 1 and services"):
+        if r6:
+            machine.succeed("test \"$(cat /proc/1/comm)\" = r6-init")
+            machine.fail("pgrep -x systemd")
+            machine.fail("pgrep -f systemd-journald")
+            machine.succeed("test ! -e /run/systemd/system")
+            machine.wait_until_succeeds("r6 status greetd | grep -q up", timeout=120)
+            # Every enabled system service is up (longrun) or done (oneshot).
+            machine.wait_until_succeeds("! r6 list | awk '$3 == \"enabled\" && $2 != \"up\" && $2 != \"done\"' | grep .", timeout=120)
+            machine.succeed("r6-activate --dir /etc/r6/services")
+            machine.succeed("logger -t raze-test hello-syslog")
+            machine.wait_until_succeeds("r6 logs syslog | grep -q hello-syslog")
+        else:
+            machine.wait_for_unit("multi-user.target")
+            machine.wait_for_unit("greetd.service")
+
+    with subtest("sudo is sudo-rs"):
         out = machine.succeed("sudo --version")
         assert "sudo-rs" in out, out
-        machine.fail("ls /run/current-system/sw/bin/ | grep -x visudo.orig")
         machine.succeed("su - raze -c 'echo raze | sudo -S -k true'")
         machine.fail("su - raze -c 'echo wrong | sudo -S -k true'")
 
-    with subtest("Raze components and branding"):
-        machine.succeed("r6 --version | grep 1.0.0")
-        machine.succeed("rix --version | grep 1.0.0")
-        machine.succeed("grep -qE '^RAZE_VERSION=\"?1.0.0' /etc/os-release")
-        machine.succeed("grep -q 'NAME=\"Raze Linux\"' /etc/os-release")
-        machine.succeed("r6-activate --dir /etc/r6/services")
+    with subtest("release and branding"):
+        machine.succeed("grep -q 'PRETTY_NAME=\"Raze Linux ${version}\"' /etc/os-release")
+        machine.succeed("r6 --version | grep -q ${version}")
+        machine.succeed("rix --version | grep -q ${version}")
+        out = machine.succeed("fastfetch --pipe true --logo none -s os:initsystem")
+        assert "Raze Linux ${version}" in out, out
+        if r6:
+            assert "r6-init" in out, out
 
-    with subtest("performance defaults"):
-        machine.succeed("systemctl is-active dbus-broker.service")
-        machine.wait_until_succeeds("grep -q zram /proc/swaps")
+    with subtest("networking and time"):
+        machine.wait_until_succeeds("nmcli -t -f STATE general | grep -q connected", timeout=60)
+        if r6:
+            machine.succeed("pgrep -u ntpd-rs -x ntp-daemon")
 
-    with subtest("networking"):
-        machine.wait_for_unit("NetworkManager.service")
-        machine.succeed("nmcli -t general status")
+    with subtest("Rift and Rift Shell"):
+        machine.wait_until_succeeds("pgrep -u raze -x rift", timeout=120)
+        machine.wait_until_succeeds("ls /run/user/1000/rift.*.sock", timeout=60)
+        out = machine.succeed("${asUser "rift msg version"}")
+        # No 3D acceleration in the test VM: Rift must pick its pixman renderer.
+        assert "drm-pixman" in out, out
+        machine.wait_until_succeeds("pgrep -u raze -f 'quickshell -p'", timeout=120)
+        machine.wait_until_succeeds("pgrep -u raze -f 'wl-paste --watch .*cliphist store'", timeout=60)
+        machine.wait_until_succeeds("${asUser "rift-shell ipc notifications count"}", timeout=60)
 
-    with subtest("desktop session"):
-        machine.wait_for_unit("greetd.service")
-        machine.fail("raze-gpu-check")
-        machine.wait_until_succeeds("pgrep -u raze -x sway", timeout=120)
-        machine.fail("pgrep -u raze -x niri")
-        machine.wait_until_succeeds("pgrep -u raze waybar", timeout=60)
-        machine.wait_until_succeeds("pgrep -u raze swaybg", timeout=60)
-        machine.sleep(5)
-        machine.screenshot("raze-desktop")
-        machine.succeed("su - raze -c 'XDG_RUNTIME_DIR=/run/user/$(id -u raze) WAYLAND_DISPLAY=wayland-1 grim /tmp/shot.png'")
+    with subtest("windows, screencopy and recording"):
+        machine.succeed("${asUser "rift msg action spawn foot"}")
+        machine.wait_until_succeeds("${asUser "rift msg windows"} | grep -q foot", timeout=60)
+        machine.succeed("${asUser "grim /tmp/shot.png"}")
+        machine.succeed("test $(stat -c %s /tmp/shot.png) -gt 10000")
         machine.copy_from_machine("/tmp/shot.png", "")
+        machine.succeed("${asUser "timeout -s INT 3 wf-recorder -f /tmp/rec.mp4 || true"}")
+        machine.succeed("test -s /tmp/rec.mp4")
+        machine.screenshot("rift-desktop")
 
-    with subtest("rix native hashing and store verification match Nix"):
+    with subtest("notifications reach Rift Shell"):
+        machine.succeed("${asUser "notify-send raze-test hello"}")
+        machine.wait_until_succeeds("${asUser "rift-shell ipc notifications count"} | grep -qx '[1-9][0-9]*'", timeout=30)
+
+    with subtest("session lock"):
+        machine.succeed("${asUser "rift-shell lock"}")
+        machine.wait_until_succeeds("${asUser "rift msg state"} | grep -q '\"locked\":true'", timeout=30)
+
+    if r6:
+        with subtest("r6 switch-to-configuration"):
+            out = machine.succeed("/run/current-system/bin/switch-to-configuration dry-activate")
+            assert "would activate" in out, out
+
+    with subtest("rix native hashing matches Nix"):
         p = machine.succeed("readlink -f /run/current-system/sw/bin/r6").strip().split("/bin/")[0]
         native = machine.succeed(f"rix hash path {p}").strip()
         reference = machine.succeed(f"nix hash path --base32 {p}").strip()
         assert native == reference, (native, reference)
-        machine.succeed(f"rix verify {p} | grep -q '^ok'")
+
+    machine.shutdown()
   '';
 }

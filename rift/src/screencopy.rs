@@ -150,9 +150,30 @@ impl Dispatch<ZwlrScreencopyFrameV1, WlrFrameData> for Rift {
             frame.failed();
             return;
         };
+        // Like wlroots, each client's damage starts as the whole output: its first
+        // copy_with_damage is served right away, later ones wait for real changes.
+        let key = (frame.client().map(|c| c.id()), output.name());
+        let first = state.wlr_copy_clients.insert(key);
+        let with_damage = with_damage && !first;
         state.pending_wlr_copies.push(PendingWlrCopy { frame: frame.clone(), buffer, with_damage });
         if !with_damage {
             state.request_redraw(&output);
+        } else {
+            // Keep-alive: on a static screen, serve the frame after a second anyway, so
+            // recorders get at least 1 frame/s and can stop cleanly.
+            let frame = frame.clone();
+            let _ = state.loop_handle.insert_source(
+                smithay::reexports::calloop::timer::Timer::from_duration(std::time::Duration::from_secs(1)),
+                move |_, _, state| {
+                    if let Some(c) = state.pending_wlr_copies.iter_mut().find(|c| c.frame == frame) {
+                        c.with_damage = false;
+                        if let Some(o) = frame.data::<WlrFrameData>().and_then(|d| d.output.as_ref()).and_then(|o| o.upgrade()) {
+                            state.request_redraw(&o);
+                        }
+                    }
+                    smithay::reexports::calloop::timer::TimeoutAction::Drop
+                },
+            );
         }
     }
 }

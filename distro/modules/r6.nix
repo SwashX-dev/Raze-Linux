@@ -119,6 +119,28 @@ in
         "raze.r6.bootEntry.enable has no effect since Raze 1.1: r6 is PID 1 by default (raze.init = \"${config.raze.init}\"). Remove the line from configuration.nix.";
     }
 
+    # NixOS test driver support: its root shell on /dev/hvc0 is a systemd unit in
+    # stock NixOS; under r6 it is an r6 service (only in test VMs).
+    (lib.mkIf (useR6 && (config.testing.backdoor or false)) {
+      raze.r6.services.backdoor = {
+        description = "NixOS test driver backdoor (test VMs only)";
+        restart = "always";
+        log = "null";
+        extraConfig.stop_signal = "HUP";
+        command = [ "${pkgs.bash}/bin/bash" "-c" ''
+          export USER=root HOME=/root DISPLAY=:0.0 PAGER=
+          source /etc/profile || true
+          cd /tmp
+          exec < /dev/hvc0 > /dev/hvc0
+          while ! exec 2> /dev/ttyS0; do sleep 0.1; done
+          echo "connecting to host..." >&2
+          stty -F /dev/hvc0 raw -echo
+          echo "Spawning backdoor root shell..."
+          PS1="" exec ${pkgs.bashNonInteractive}/bin/bash --norc /dev/hvc0
+        '' ];
+      };
+    })
+
     (lib.mkIf useR6 {
       # Only r6 systems get (and validate) an r6 service set; with raze.init =
       # "systemd" the r6 services other modules declare are inert.
