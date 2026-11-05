@@ -82,20 +82,14 @@ fn run_shell() -> Result<(), String> {
     use std::os::unix::process::CommandExt;
     let mut cmd = Command::new("quickshell");
     cmd.arg("-p").arg(shell_dir()).arg("--no-duplicate");
-    // When Rift composites in software (no 3D-capable GPU), Qt's own software renderer
-    // is far cheaper than OpenGL on llvmpipe.
-    if std::env::var_os("QT_QUICK_BACKEND").is_none() {
-        let software = rift(&["version"])
-            .ok()
-            .and_then(|v| {
-                v["backend"]
-                    .as_str()
-                    .map(|b| b == "drm-pixman" || b == "headless")
-            })
-            .unwrap_or(false);
-        if software {
-            cmd.env("QT_QUICK_BACKEND", "software");
-        }
+    // Qt's software renderer by default: the shell is mostly static, and loading the
+    // OpenGL driver stack costs ~120 MB (measured: 217 vs 99 MB PSS). Opt in to GL
+    // with RIFT_SHELL_RENDERER=gl; an explicit QT_QUICK_BACKEND always wins.
+    let gl = std::env::var("RIFT_SHELL_RENDERER")
+        .map(|v| v == "gl")
+        .unwrap_or(false);
+    if std::env::var_os("QT_QUICK_BACKEND").is_none() && !gl {
+        cmd.env("QT_QUICK_BACKEND", "software");
     }
     let err = cmd.exec();
     Err(format!("cannot start quickshell: {err}"))

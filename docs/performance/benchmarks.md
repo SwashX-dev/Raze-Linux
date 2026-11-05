@@ -1,7 +1,71 @@
-# Benchmarks (1.0.0)
+# Benchmarks
 
 Environment and method: [methodology.md](methodology.md). Raw data:
-[`benchmarks/results/`](../../benchmarks/results).
+[`benchmarks/results/`](../../benchmarks/results). Every number below was measured;
+where Raze loses, the table says so.
+
+## 1.1.0
+
+### r6 vs systemd — same Raze Desktop, only PID 1 differs (5 interleaved boots each)
+
+`benchmarks/desktop-init.py`, systems from `distro/configurations/vm-desktop.nix`
+(`benchmarks/variants/desktop-systemd.nix` for systemd). QEMU/KVM, 4 vCPU, 3 GiB,
+no 3D, warm-up boot discarded. Milestones are process start times read from `/proc`
+in the guest; memory 20 s after the greeter started.
+
+| Metric (median ± stdev) | r6 | systemd |
+|---|---|---|
+| Kernel start → greeter (greetd started) | **5.08 ± 0.04 s** | 6.41 ± 0.45 s |
+| Kernel start → NetworkManager started | **5.08 ± 0.05 s** | 6.23 ± 0.45 s |
+| System memory used (MemTotal − MemAvailable) | **355 ± 6 MB** | 379 ± 7 MB |
+| Userspace processes | 24 | **19** |
+| Userspace PSS (sum) | 93.5 MB | **73.0 MB** |
+| PID 1 RSS | **2.6 MB** | 15.0 MB |
+
+**Reading:** r6 reaches the login screen 1.3 s sooner and the system uses 24 MB less
+memory. systemd runs fewer processes and less userspace memory at the greeter
+because it starts nix-daemon (25.6 MB PSS) through socket activation on first use;
+r6 has no socket activation yet and starts it at boot. Like systemd, r6 leaves
+udisks2, upower and rtkit to D-Bus activation (that change took r6 from 105 to 94 MB
+userspace PSS and from 29 to 24 processes).
+
+### r6 vs s6 — Raze Core, 10 interleaved boots each (r6 1.1)
+
+| Metric (median ± stdev) | r6 | s6 |
+|---|---|---|
+| PID 1 start → last of 20 services started | 32.88 ± 2.17 ms | **31.63 ± 1.39 ms** |
+| Kernel start → last service started | 235.22 ± 4.66 ms | **232.11 ± 3.97 ms** |
+| Init + supervision processes | **2** | 27 |
+| Supervision RSS (sum) | **1830 ± 35 KiB** | 3166 ± 15 KiB |
+| Supervision PSS (sum) | 1818 ± 35 KiB | **1217 ± 16 KiB** |
+| System memory used | **50.96 ± 3.45 MB** | 53.49 ± 0.59 MB |
+
+Same picture as 1.0: activation latency equal within noise (s6's median is 1 ms
+lower), r6 with 25 fewer processes and lower RSS, s6 with lower PSS.
+
+### Rift vs niri — same r6 system, virgl GPU (3 interleaved runs each)
+
+@@COMPOSITOR@@
+
+### Rift Shell memory
+
+| Change | Rift Shell PSS, idle (headless Rift, Qt software renderer) |
+|---|---|
+| All overlays created at start | 130 MB |
+| Launcher, control centre, power menu, clipboard created on demand (`LazyLoader`) | **99 MB** |
+
+Rift Shell starts Qt's software renderer when Rift composites in software: in the
+no-3D VM, Quickshell's RSS was 276 MB with OpenGL on llvmpipe and 123 MB with Qt's
+software renderer.
+
+### Idle CPU (no-3D VM, desktop logged in, 30 s)
+
+| Process | CPU ticks in 30 s |
+|---|---|
+| Rift (pixman) | 0 |
+| Rift Shell (Quickshell) | 1 |
+
+## 1.0.0
 
 ## r6 vs s6 — Raze Core, 10 interleaved boots each
 

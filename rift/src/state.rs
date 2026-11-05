@@ -121,6 +121,7 @@ pub struct Rift {
     pub pending_lock: Option<SessionLocker>,
     pub children: Vec<Child>,
     pub xwayland_display: Option<String>,
+    pub xwayland: Option<crate::xwayland::Xwayland>,
     pub ipc: crate::ipc::Ipc,
     pub pending_captures: Vec<crate::screencopy::PendingCapture>,
     pub pending_wlr_copies: Vec<crate::screencopy::PendingWlrCopy>,
@@ -298,6 +299,7 @@ impl Rift {
             pending_lock: None,
             children: Vec::new(),
             xwayland_display: None,
+            xwayland: None,
             ipc,
             pending_captures: Vec::new(),
             pending_wlr_copies: Vec::new(),
@@ -693,34 +695,16 @@ impl Rift {
     }
 
     pub fn reap_children(&mut self) {
-        self.children
-            .retain_mut(|c| matches!(c.try_wait(), Ok(None)));
-    }
-
-    /// Start xwayland-satellite on the first free X display.
-    pub fn start_xwayland(&mut self) {
-        if !self.config.xwayland {
-            return;
-        }
-        let Some(n) = (0..32).find(|n| {
-            !std::path::Path::new(&format!("/tmp/.X11-unix/X{n}")).exists()
-                && !std::path::Path::new(&format!("/tmp/.X{n}-lock")).exists()
-        }) else {
-            return;
-        };
-        let x_display = format!(":{n}");
-        let mut cmd = Command::new("xwayland-satellite");
-        cmd.arg(&x_display).stdin(Stdio::null());
-        for (k, v) in self.child_env() {
-            cmd.env(k, v);
-        }
-        match cmd.spawn() {
-            Ok(child) => {
-                tracing::info!("xwayland-satellite on DISPLAY={x_display}");
-                self.children.push(child);
-                self.xwayland_display = Some(x_display);
+        let mut exited = Vec::new();
+        self.children.retain_mut(|c| {
+            let running = matches!(c.try_wait(), Ok(None));
+            if !running {
+                exited.push(c.id());
             }
-            Err(e) => tracing::info!("XWayland disabled: xwayland-satellite not available ({e})"),
+            running
+        });
+        for pid in exited {
+            self.xwayland_child_exited(pid);
         }
     }
 

@@ -9,6 +9,7 @@ mod layout;
 mod render;
 mod screencopy;
 mod state;
+mod xwayland;
 
 use smithay::reexports::calloop::EventLoop;
 use smithay::reexports::wayland_server::Display;
@@ -135,6 +136,7 @@ fn main() {
     std::env::set_var("WAYLAND_DISPLAY", &state.socket_name);
     std::env::set_var("RIFT_SOCKET", &state.ipc.path);
 
+    install_signal_handlers(&state);
     state.start_xwayland();
     for cmd in state.config.spawn_at_startup.clone() {
         state.spawn(&cmd);
@@ -151,6 +153,47 @@ fn main() {
     for child in state.children.iter_mut() {
         let _ = child.kill();
     }
+    // Dropping the state removes the Wayland, IPC and X11 sockets and the X lock file.
+    drop(state);
+}
+
+static SIGNAL_PIPE: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(-1);
+
+extern "C" fn on_signal(_: libc::c_int) {
+    let fd = SIGNAL_PIPE.load(std::sync::atomic::Ordering::Relaxed);
+    if fd >= 0 {
+        // SAFETY: write(2) is async-signal-safe.
+        unsafe { libc::write(fd, b"x".as_ptr().cast(), 1) };
+    }
+}
+
+/// SIGTERM/SIGINT/SIGHUP stop the event loop, so Rift exits cleanly (sockets, lock
+/// files and child processes are cleaned up).
+fn install_signal_handlers(state: &Rift) {
+    use smithay::reexports::calloop::generic::Generic;
+    use smithay::reexports::calloop::{Interest, Mode, PostAction};
+    use std::os::fd::FromRawFd;
+    let mut fds = [0; 2];
+    // SAFETY: plain pipe2/sigaction calls with valid arguments.
+    unsafe {
+        if libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC | libc::O_NONBLOCK) != 0 {
+            return;
+        }
+        SIGNAL_PIPE.store(fds[1], std::sync::atomic::Ordering::Relaxed);
+        for sig in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
+            libc::signal(sig, on_signal as *const () as libc::sighandler_t);
+        }
+    }
+    // SAFETY: fds[0] is a fresh, owned pipe end.
+    let reader = unsafe { std::fs::File::from_raw_fd(fds[0]) };
+    let _ = state.loop_handle.insert_source(
+        Generic::new(reader, Interest::READ, Mode::Level),
+        |_, _, state| {
+            tracing::info!("terminating");
+            state.loop_signal.stop();
+            Ok(PostAction::Remove)
+        },
+    );
 }
 
 fn validate(path: Option<&String>) -> i32 {

@@ -6,27 +6,35 @@
       "runs": 3,
       "idle_cpu_s_per_60s": {
         "median": 0.0,
-        "stdev": 0.0
+        "stdev": 0.005773502691896258
+      },
+      "session_idle_cpu_s_per_60s": {
+        "median": 0.02,
+        "stdev": 0.005773502691896258
       },
       "rss_kib": {
-        "median": 75480,
-        "stdev": 121.26005112979294
+        "median": 75376,
+        "stdev": 158.10545004310677
       },
       "pss_kib": {
-        "median": 42295,
-        "stdev": 312.7027342381259
+        "median": 42144,
+        "stdev": 149.64290828502365
       },
       "session_pss_kib": {
-        "median": 351996,
-        "stdev": 3774.3115928603456
+        "median": 344247,
+        "stdev": 1325.3868617627584
       },
       "mem_used_kib": {
-        "median": 600212,
-        "stdev": 7898.163837247237
+        "median": 595672,
+        "stdev": 7142.307003576178
       },
       "workload_cpu_s_per_10s": {
-        "median": 0.0,
-        "stdev": 0.0
+        "median": 0.49,
+        "stdev": 0.034641016151377574
+      },
+      "workload_session_cpu_s_per_10s": {
+        "median": 0.8,
+        "stdev": 0.060827625302982184
       }
     },
     "niri": {
@@ -35,27 +43,35 @@
       "runs": 3,
       "idle_cpu_s_per_60s": {
         "median": 0.06,
-        "stdev": 0.005773502691896263
+        "stdev": 0.0
+      },
+      "session_idle_cpu_s_per_60s": {
+        "median": 0.09,
+        "stdev": 0.0057735026918962545
       },
       "rss_kib": {
-        "median": 103716,
-        "stdev": 171.31647128438448
+        "median": 103480,
+        "stdev": 512.6298209559538
       },
       "pss_kib": {
-        "median": 82919,
-        "stdev": 238.70553687196562
+        "median": 82801,
+        "stdev": 384.31801068039124
       },
       "session_pss_kib": {
-        "median": 243344,
-        "stdev": 182.14371615110232
+        "median": 243379,
+        "stdev": 116.56757696718243
       },
       "mem_used_kib": {
-        "median": 505320,
-        "stdev": 7912.8543522549435
+        "median": 511860,
+        "stdev": 7947.564490668405
       },
       "workload_cpu_s_per_10s": {
-        "median": 0.01,
-        "stdev": 0.01
+        "median": 0.51,
+        "stdev": 0.005773502691896263
+      },
+      "workload_session_cpu_s_per_10s": {
+        "median": 0.82,
+        "stdev": 0.011547005383792462
       }
     }
   },
@@ -65,31 +81,37 @@
         "compositor": "rift",
         "renderer": "{\"backend\":\"drm-gles\",\"version\":\"1.1.0\"}",
         "idle_cpu_s_per_60s": 0.0,
-        "rss_kib": 75688,
-        "pss_kib": 42295,
-        "session_pss_kib": 351996,
-        "mem_used_kib": 595196,
-        "workload_cpu_s_per_10s": 0.0
+        "rss_kib": 75376,
+        "pss_kib": 42361,
+        "session_pss_kib": 344247,
+        "mem_used_kib": 604780,
+        "session_idle_cpu_s_per_60s": 0.02,
+        "workload_cpu_s_per_10s": 0.49,
+        "workload_session_cpu_s_per_10s": 0.8
+      },
+      {
+        "compositor": "rift",
+        "renderer": "{\"backend\":\"drm-gles\",\"version\":\"1.1.0\"}",
+        "idle_cpu_s_per_60s": 0.01,
+        "rss_kib": 75468,
+        "pss_kib": 42144,
+        "session_pss_kib": 342358,
+        "mem_used_kib": 590696,
+        "session_idle_cpu_s_per_60s": 0.01,
+        "workload_cpu_s_per_10s": 0.55,
+        "workload_session_cpu_s_per_10s": 0.9
       },
       {
         "compositor": "rift",
         "renderer": "{\"backend\":\"drm-gles\",\"version\":\"1.1.0\"}",
         "idle_cpu_s_per_60s": 0.0,
-        "rss_kib": 75476,
-        "pss_kib": 42800,
-        "session_pss_kib": 349446,
-        "mem_used_kib": 600212,
-        "workload_cpu_s_per_10s": 0.0
-      },
-      {
-        "compositor": "rift",
-        "renderer": "{\"backend\":\"drm-gles\",\"version\":\"1.1.0\"}",
-        "idle_cpu_s_per_60s": 0.0,
-        "rss_kib": 75480,
-        "pss_kib": 42228,
-        "session_pss_kib": 356874,
-        "mem_used_kib": 610676,
-        "workload_cpu_s_per_10s": 0.0
+        "rss_kib": 75160,
+        "pss_kib": 42074,
+        "session_pss_kib": 344913,
+        "mem_used_kib": 595672,
+        "session_idle_cpu_s_per_60s": 0.02,
+        "workload_cpu_s_per_10s": 0.49,
+        "workload_session_cpu_s_per_10s": 0.79
       }
     ],
     "niri": [
@@ -97,31 +119,37 @@
         "compositor": "niri",
         "renderer": "",
         "idle_cpu_s_per_60s": 0.06,
-        "rss_kib": 103716,
-        "pss_kib": 82919,
-        "session_pss_kib": 243344,
-        "mem_used_kib": 517404,
-        "workload_cpu_s_per_10s": 0.0
+        "rss_kib": 103948,
+        "pss_kib": 83325,
+        "session_pss_kib": 243527,
+        "mem_used_kib": 516120,
+        "session_idle_cpu_s_per_60s": 0.08,
+        "workload_cpu_s_per_10s": 0.52,
+        "workload_session_cpu_s_per_10s": 0.8
       },
       {
         "compositor": "niri",
         "renderer": "",
         "idle_cpu_s_per_60s": 0.06,
-        "rss_kib": 103740,
-        "pss_kib": 83284,
-        "session_pss_kib": 243499,
-        "mem_used_kib": 502512,
-        "workload_cpu_s_per_10s": 0.02
+        "rss_kib": 103480,
+        "pss_kib": 82801,
+        "session_pss_kib": 243379,
+        "mem_used_kib": 511860,
+        "session_idle_cpu_s_per_60s": 0.09,
+        "workload_cpu_s_per_10s": 0.51,
+        "workload_session_cpu_s_per_10s": 0.82
       },
       {
         "compositor": "niri",
         "renderer": "",
-        "idle_cpu_s_per_60s": 0.07,
-        "rss_kib": 103432,
-        "pss_kib": 82835,
-        "session_pss_kib": 243136,
-        "mem_used_kib": 505320,
-        "workload_cpu_s_per_10s": 0.01
+        "idle_cpu_s_per_60s": 0.06,
+        "rss_kib": 102924,
+        "pss_kib": 82576,
+        "session_pss_kib": 243297,
+        "mem_used_kib": 500728,
+        "session_idle_cpu_s_per_60s": 0.09,
+        "workload_cpu_s_per_10s": 0.51,
+        "workload_session_cpu_s_per_10s": 0.82
       }
     ]
   }
