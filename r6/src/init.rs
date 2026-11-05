@@ -143,6 +143,21 @@ fn mount_api_filesystems() {
 /// /run/systemd/system. Neither is true any more: stop the processes and remove the
 /// marker (libraries and dbus-daemon use it to decide whether to talk to systemd).
 /// The rest of /run/systemd stays: elogind keeps its compatibility state there.
+/// NixOS activation rewrites /etc/passwd, /etc/shadow and friends in the initramfs,
+/// just before switch-root. Nothing else syncs them early (under systemd, journald's
+/// first fsync commits them as a side effect), so a power loss in the first ~30 s of
+/// boot could leave them truncated. Flush once, in a child process so boot does not
+/// wait for the disk; the child is reaped like any orphan.
+fn flush_activation_writes() {
+    // SAFETY: fork in a single-threaded process; the child only calls sync and _exit.
+    unsafe {
+        if libc::fork() == 0 {
+            libc::sync();
+            libc::_exit(0);
+        }
+    }
+}
+
 fn cleanup_initramfs_leftovers() {
     let _ = std::fs::remove_dir_all("/run/systemd/system");
     let leftovers = sys::user_processes();
@@ -418,6 +433,7 @@ pub fn main() -> ! {
         }
         mount_api_filesystems();
         cleanup_initramfs_leftovers();
+        flush_activation_writes();
         sys::disable_cad();
         if let Ok(h) = std::fs::read_to_string("/etc/hostname") {
             let h = h.trim();

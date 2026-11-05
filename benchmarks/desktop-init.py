@@ -50,19 +50,30 @@ class Agent:
         s = socket.socket(socket.AF_UNIX)
         s.settimeout(timeout)
         s.connect(self.path)
+        f = s.makefile("rb")
+        # guest-sync first: replies to requests sent before the agent was up (or by an
+        # earlier connection) may still be queued; skip everything up to our token.
+        token = int(time.time() * 1000) % 2**31
+        s.sendall((json.dumps({"execute": "guest-sync", "arguments": {"id": token}}) + "\n").encode())
+        while True:
+            line = f.readline()
+            if not line:
+                raise OSError("agent closed the connection")
+            try:
+                if json.loads(line).get("return") == token:
+                    break
+            except ValueError:
+                continue
         s.sendall((json.dumps(cmd) + "\n").encode())
-        buf = b""
-        while b"\n" not in buf:
-            buf += s.recv(65536)
+        r = json.loads(f.readline())
         s.close()
-        r = json.loads(buf)
         if "error" in r:
             raise RuntimeError(r["error"])
         return r["return"]
 
     def sh(self, script, timeout=30):
         pid = self.call({"execute": "guest-exec", "arguments": {
-            "path": "/run/current-system/sw/bin/bash", "arg": ["-c", script], "capture-output": True}})["pid"]
+            "path": "/run/current-system/sw/bin/bash", "arg": ["-lc", script], "capture-output": True}})["pid"]
         end = time.time() + timeout
         while time.time() < end:
             st = self.call({"execute": "guest-exec-status", "arguments": {"pid": pid}})
@@ -73,6 +84,9 @@ class Agent:
 
 
 def boot(vm, disk, tmp):
+    # A fresh directory per boot: the VM runner also starts virtiofsd, whose sockets
+    # live in the working directory.
+    tmp = tempfile.mkdtemp(dir=tmp)
     qga = os.path.join(tmp, "qga.sock")
     qmp = os.path.join(tmp, "qmp.sock")
     for p in (qga, qmp):
@@ -83,28 +97,41 @@ def boot(vm, disk, tmp):
         f"-chardev socket,path={qga},server=on,wait=off,id=qga0 "
         "-device virtio-serial -device virtserialport,chardev=qga0,name=org.qemu.guest_agent.0"))
     runner = [os.path.join(vm, "bin", f) for f in os.listdir(os.path.join(vm, "bin")) if f.startswith("run-")][0]
-    proc = subprocess.Popen([runner], env=env, cwd=tmp, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    proc = subprocess.Popen([runner], env=env, cwd=tmp, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            start_new_session=True)
     agent = Agent(qga)
     deadline = time.time() + 180
     vals = {}
     while time.time() < deadline:
         try:
             out = agent.sh(PROBE)
+            if os.environ.get("BENCH_DEBUG"):
+                print(f"  probe: {out!r}", flush=True)
             vals = dict(l.split("=", 1) for l in out.split() if "=" in l)
             if vals.get("greeter"):
                 break
-        except (OSError, RuntimeError, TimeoutError, ValueError):
-            pass
+        except (OSError, RuntimeError, TimeoutError, ValueError) as e:
+            if os.environ.get("BENCH_DEBUG"):
+                print(f"  probe: {type(e).__name__}: {e}", flush=True)
         time.sleep(0.5)
     if not vals.get("greeter"):
-        proc.kill()
+        stop(proc)
         raise RuntimeError(f"{vm}: greeter did not start")
     time.sleep(max(0, float(vals["greeter"]) + 20 - float(agent.sh("cut -d' ' -f1 /proc/uptime"))))
     out = agent.sh(SETTLED)
     vals.update(dict(l.split("=", 1) for l in out.split() if "=" in l))
-    proc.kill()
-    proc.wait()
+    stop(proc)
     return vals
+
+
+def stop(proc):
+    """Kill the VM and its helpers (virtiofsd) together."""
+    import signal
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    proc.wait()
 
 
 def main():

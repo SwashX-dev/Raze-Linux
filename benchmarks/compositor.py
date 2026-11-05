@@ -53,7 +53,7 @@ awk '/MemTotal/{t=$2} /MemAvailable/{a=$2} END{print "mem_used_kib=" t-a}' /proc
 
 
 def run(vm, disk, tmp):
-    import socket
+    tmp = tempfile.mkdtemp(dir=tmp)
     qga = os.path.join(tmp, "qga.sock")
     qmp = os.path.join(tmp, "qmp.sock")
     for p in (qga, qmp):
@@ -65,7 +65,8 @@ def run(vm, disk, tmp):
         f"-chardev socket,path={qga},server=on,wait=off,id=qga0 "
         "-device virtio-serial -device virtserialport,chardev=qga0,name=org.qemu.guest_agent.0"))
     runner = [os.path.join(vm, "bin", f) for f in os.listdir(os.path.join(vm, "bin")) if f.startswith("run-")][0]
-    proc = subprocess.Popen([runner], env=env, cwd=tmp, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    proc = subprocess.Popen([runner], env=env, cwd=tmp, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            start_new_session=True)
     agent = di.Agent(qga)
     try:
         comp = None
@@ -96,8 +97,7 @@ def run(vm, disk, tmp):
                 "pss_kib": int(idle["pss_kib"]), "session_pss_kib": int(idle["session_pss_kib"]),
                 "mem_used_kib": int(idle["mem_used_kib"]), "workload_cpu_s_per_10s": float(work["cpu_s"])}
     finally:
-        proc.kill()
-        proc.wait()
+        di.stop(proc)
 
 
 def main():
