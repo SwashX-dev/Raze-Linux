@@ -118,6 +118,21 @@ in
     }
 
     (lib.mkIf useR6 {
+      # NixOS's switch-to-configuration drives systemd over D-Bus; r6 systems get their
+      # own (boot loader + activation script + r6 reload/restart of changed services),
+      # so `nixos-rebuild switch` and `rix system switch` work under r6.
+      system.switch.enable = false;
+      system.activatableSystemBuilderCommands = ''
+        mkdir -p $out/bin
+        substitute ${./r6/switch-to-configuration.sh} $out/bin/switch-to-configuration \
+          --subst-var-by shell ${pkgs.runtimeShell} \
+          --subst-var-by path ${lib.makeBinPath [ pkgs.r6 pkgs.coreutils pkgs.gnugrep pkgs.gawk pkgs.diffutils pkgs.gnused ]} \
+          --subst-var-by toplevel ''${!toplevelVar} \
+          --subst-var-by preSwitchCheck ${config.system.preSwitchChecksScript} \
+          --subst-var-by installBootLoader ${config.system.build.installBootLoader}
+        chmod +x $out/bin/switch-to-configuration
+      '';
+
       # Hand PID 1 to r6-init at switch-root. The path refers to the real root's store;
       # r6 is part of the system closure, so the initrd need not carry it.
       boot.initrd.systemd.services.initrd-switch-root.serviceConfig.ExecStart = lib.mkForce [
