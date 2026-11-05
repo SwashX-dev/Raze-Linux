@@ -2,6 +2,7 @@
 
 mod backend;
 mod config;
+mod floating;
 mod handlers;
 mod input;
 mod ipc;

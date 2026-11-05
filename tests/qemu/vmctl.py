@@ -63,7 +63,7 @@ class QMP:
                 self.keys([QCODE[ch]])
             else:
                 self.keys([ch])
-            time.sleep(0.03)
+            time.sleep(0.09)  # after the 50 ms hold: no overlapping key presses
 
     def screen_size(self):
         tmp = "/tmp/.vmctl-size.ppm"

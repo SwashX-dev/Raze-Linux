@@ -257,10 +257,7 @@ impl Rift {
         if self.config.input.focus_follows_mouse && !self.locked {
             if let Some((surface, _)) = &under {
                 if let Some(window) = self.window_for_surface(surface) {
-                    if self.layout.focused_window() != Some(&window) {
-                        self.layout.focus_window(&window);
-                        self.relayout();
-                    }
+                    self.focus_window(window);
                 }
             }
         }
@@ -281,10 +278,7 @@ impl Rift {
             if let Some((surface, _)) = self.surface_under(self.pointer_location) {
                 let root = self.root_surface(&surface);
                 if let Some(window) = self.window_for_surface(&root) {
-                    if self.layout.focused_window() != Some(&window) {
-                        self.layout.focus_window(&window);
-                        self.relayout();
-                    }
+                    self.focus_window(window);
                 } else if self.is_interactive_layer(&root) {
                     let keyboard = self.seat.get_keyboard().unwrap();
                     keyboard.set_focus(self, Some(root), serial);
@@ -370,16 +364,39 @@ impl Rift {
     }
 
     pub fn close_focused(&mut self) {
-        if let Some(t) = self
-            .layout
-            .focused_window()
-            .and_then(|w| w.toplevel().cloned())
-        {
+        if let Some(t) = self.focused_window().and_then(|w| w.toplevel().cloned()) {
             t.send_close();
         }
     }
 
+    /// Focus a window (tiled or floating) if it is not focused already.
+    pub fn focus_window(&mut self, window: smithay::desktop::Window) {
+        if self.focused_window() == Some(&window) {
+            return;
+        }
+        if self.is_floating(&window) {
+            self.focused_floating = Some(window);
+        } else {
+            self.focused_floating = None;
+            self.layout.focus_window(&window);
+        }
+        self.relayout();
+    }
+
     pub fn do_action(&mut self, action: Action) {
+        // Layout actions act on the tiled windows: a focused dialog gives up focus.
+        if !matches!(
+            action,
+            Action::Spawn(_)
+                | Action::Close
+                | Action::Quit
+                | Action::ReloadConfig
+                | Action::PowerOffMonitors
+                | Action::SwitchVt(_)
+                | Action::ToggleAnimations
+        ) {
+            self.focused_floating = None;
+        }
         let l = &mut self.layout;
         match action {
             Action::Spawn(cmd) => return self.spawn(&cmd),

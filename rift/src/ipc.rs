@@ -170,17 +170,24 @@ impl Rift {
     }
 
     fn ipc_windows(&self) -> Value {
-        let focused = self.layout.focused_window();
+        let focused = self.focused_window();
         Value::Array(
             self.layout
                 .windows()
-                .map(|w| {
+                .map(|w| (w, self.layout.workspace_of(w), false))
+                .chain(
+                    self.floating
+                        .iter()
+                        .map(|f| (&f.window, Some(f.workspace), true)),
+                )
+                .map(|(w, workspace, floating)| {
                     let (app_id, title) = Self::app_id_title(w);
                     json!({
                         "app_id": app_id,
                         "title": title,
-                        "workspace": self.layout.workspace_of(w),
+                        "workspace": workspace,
                         "focused": Some(w) == focused,
+                        "floating": floating,
                     })
                 })
                 .collect(),
@@ -188,7 +195,7 @@ impl Rift {
     }
 
     fn ipc_snapshot(&self) -> Value {
-        let focused = self.layout.focused_window().map(|w| {
+        let focused = self.focused_window().map(|w| {
             let (app_id, title) = Self::app_id_title(w);
             json!({ "app_id": app_id, "title": title })
         });

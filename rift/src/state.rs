@@ -122,6 +122,9 @@ pub struct Rift {
     pub children: Vec<Child>,
     pub xwayland_display: Option<String>,
     pub xwayland: Option<crate::xwayland::Xwayland>,
+    /// Dialogs (not tiled), see floating.rs.
+    pub floating: Vec<crate::floating::Floating>,
+    pub focused_floating: Option<Window>,
     pub ipc: crate::ipc::Ipc,
     pub pending_captures: Vec<crate::screencopy::PendingCapture>,
     pub pending_wlr_copies: Vec<crate::screencopy::PendingWlrCopy>,
@@ -300,6 +303,8 @@ impl Rift {
             children: Vec::new(),
             xwayland_display: None,
             xwayland: None,
+            floating: Vec::new(),
+            focused_floating: None,
             ipc,
             pending_captures: Vec::new(),
             pending_wlr_copies: Vec::new(),
@@ -417,6 +422,7 @@ impl Rift {
     pub fn window_for_surface(&self, surface: &WlSurface) -> Option<Window> {
         self.layout
             .windows()
+            .chain(self.floating.iter().map(|f| &f.window))
             .find(|w| {
                 w.toplevel()
                     .map(|t| t.wl_surface() == surface)
@@ -454,7 +460,16 @@ impl Rift {
                 .new_toplevel::<Rift>(title.clone(), app_id.clone());
             self.toplevel_handles.insert(t.wl_surface().clone(), handle);
         }
-        self.layout.add_window(window, &rule);
+        let dialog = window
+            .toplevel()
+            .map(crate::floating::is_dialog)
+            .unwrap_or(false);
+        if dialog {
+            self.map_floating(window);
+        } else {
+            self.focused_floating = None;
+            self.layout.add_window(window, &rule);
+        }
         self.relayout();
     }
 
@@ -465,7 +480,9 @@ impl Rift {
             }
         }
         self.space.unmap_elem(window);
-        self.layout.remove_window(window);
+        if !self.unmap_floating(window) {
+            self.layout.remove_window(window);
+        }
         self.relayout();
     }
 
@@ -556,6 +573,7 @@ impl Rift {
                 });
             }
         }
+        self.layout_floating();
         self.update_keyboard_focus();
         self.request_redraw_all();
         self.ipc_state_changed();
@@ -563,7 +581,7 @@ impl Rift {
 
     /// Placements for rendering decorations (focus ring) on one output.
     pub fn focused_rect_on(&self, output: &Output) -> Option<(Rectangle<i32, Logical>, bool)> {
-        let focused = self.layout.focused_window()?;
+        let focused = self.focused_window()?;
         let loc = self.space.element_location(focused)?;
         let lane = self.output_state(output)?.lane;
         let geo = focused.geometry();
@@ -590,8 +608,7 @@ impl Rift {
         } else if let Some(layer) = self.exclusive_layer() {
             Some(layer.wl_surface().clone())
         } else {
-            self.layout
-                .focused_window()
+            self.focused_window()
                 .and_then(|w| w.toplevel().map(|t| t.wl_surface().clone()))
         };
         if keyboard.current_focus() != target {

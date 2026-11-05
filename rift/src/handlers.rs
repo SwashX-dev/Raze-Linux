@@ -169,9 +169,18 @@ impl CompositorHandler for Rift {
 
 impl Rift {
     fn initial_configure(&mut self, toplevel: &ToplevelSurface) {
-        let size = self.layout.initial_size();
+        // Dialogs float and choose their own size.
+        let dialog = crate::floating::is_dialog(toplevel);
+        let size = if dialog {
+            None
+        } else {
+            self.layout.initial_size()
+        };
         toplevel.with_pending_state(|s| {
             s.size = size.map(|(w, h)| (w, h).into());
+            if dialog {
+                return;
+            }
             for st in [
                 smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::TiledLeft,
                 smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::State::TiledRight,
@@ -592,8 +601,7 @@ impl XdgActivationHandler for Rift {
     ) {
         if data.timestamp.elapsed().as_secs() < 10 {
             if let Some(window) = self.window_for_surface(&surface) {
-                self.layout.focus_window(&window);
-                self.relayout();
+                self.focus_window(window);
             }
         }
     }

@@ -246,7 +246,7 @@ where
     let ring_w = state.config.layout.focus_ring_width.max(0);
     let active = color_of(&state.config.layout.active_color, [0.86, 0.15, 0.15, 1.0]);
     let inactive = color_of(&state.config.layout.inactive_color, [0.25, 0.25, 0.27, 1.0]);
-    let focused = state.layout.focused_window().cloned();
+    let focused = state.focused_window().cloned();
     let size = state.output_logical_size(output);
     let mut rings = state.decorations.rings.borrow_mut();
     let mut used = Vec::new();
