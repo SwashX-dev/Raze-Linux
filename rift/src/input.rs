@@ -1,11 +1,14 @@
-//! Input: key bindings, pointer movement across outputs, focus, actions.
+//! Input: key bindings, pointer movement across outputs, touch, touchpad gestures,
+//! focus, actions.
 
 use smithay::backend::input::{
-    AbsolutePositionEvent, Axis, AxisSource, ButtonState, Event, InputBackend, InputEvent,
-    KeyState, KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent, PointerMotionEvent,
+    AbsolutePositionEvent, Axis, AxisSource, ButtonState, Event, GestureBeginEvent,
+    GestureEndEvent, GestureSwipeUpdateEvent, InputBackend, InputEvent, KeyState, KeyboardKeyEvent,
+    PointerAxisEvent, PointerButtonEvent, PointerMotionEvent, TouchEvent,
 };
 use smithay::input::keyboard::{xkb, FilterResult, Keycode, ModifiersState};
 use smithay::input::pointer::{AxisFrame, ButtonEvent, MotionEvent, RelativeMotionEvent};
+use smithay::input::touch;
 use smithay::utils::{Logical, Point, SERIAL_COUNTER};
 use smithay::wayland::pointer_constraints::{with_pointer_constraint, PointerConstraint};
 
@@ -17,6 +20,32 @@ use crate::state::Rift;
 pub struct Binding {
     pub combo: Combo,
     pub action: Action,
+}
+
+/// Distance (logical pixels of touchpad movement) a swipe must travel to count.
+const SWIPE_THRESHOLD: f64 = 60.0;
+
+/// The action for a finished touchpad swipe: three or more fingers left/right scroll
+/// through the columns (content follows the fingers), up/down switch workspaces.
+pub fn swipe_action(fingers: u32, d: Point<f64, Logical>) -> Option<Action> {
+    if fingers < 3 {
+        return None;
+    }
+    if d.x.abs() >= d.y.abs() && d.x.abs() >= SWIPE_THRESHOLD {
+        Some(if d.x < 0.0 {
+            Action::FocusRight
+        } else {
+            Action::FocusLeft
+        })
+    } else if d.y.abs() > d.x.abs() && d.y.abs() >= SWIPE_THRESHOLD {
+        Some(if d.y < 0.0 {
+            Action::WorkspaceDown
+        } else {
+            Action::WorkspaceUp
+        })
+    } else {
+        None
+    }
 }
 
 /// Parse the `[binds]` table. Invalid entries were already rejected by `Config::validate`.
@@ -73,6 +102,43 @@ impl Rift {
             InputEvent::PointerMotionAbsolute { event } => self.on_pointer_absolute::<B>(event),
             InputEvent::PointerButton { event } => self.on_pointer_button::<B>(event),
             InputEvent::PointerAxis { event } => self.on_pointer_axis::<B>(event),
+            InputEvent::TouchDown { event } => {
+                let pos = self.touch_position(&event);
+                self.on_touch_down(event.slot(), pos, event.time());
+            }
+            InputEvent::TouchMotion { event } => {
+                let pos = self.touch_position(&event);
+                self.on_touch_motion(event.slot(), pos, event.time());
+            }
+            InputEvent::TouchUp { event } => self.on_touch_up(event.slot(), event.time()),
+            InputEvent::TouchFrame { .. } => {
+                if let Some(t) = self.seat.get_touch() {
+                    t.frame(self);
+                }
+            }
+            InputEvent::TouchCancel { .. } => {
+                self.touch_points.clear();
+                if let Some(t) = self.seat.get_touch() {
+                    t.cancel(self);
+                }
+            }
+            InputEvent::GestureSwipeBegin { event } => {
+                self.swipe = Some((event.fingers(), Point::from((0.0, 0.0))));
+            }
+            InputEvent::GestureSwipeUpdate { event } => {
+                if let Some((_, d)) = &mut self.swipe {
+                    *d += event.delta();
+                }
+            }
+            InputEvent::GestureSwipeEnd { event } => {
+                if let Some((fingers, d)) = self.swipe.take() {
+                    if !event.cancelled() && !self.locked {
+                        if let Some(a) = swipe_action(fingers, d) {
+                            self.do_action(a);
+                        }
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -267,6 +333,97 @@ impl Rift {
         }
         if let Some(o) = new_output {
             self.request_redraw(&o);
+        }
+    }
+
+    /// Touchscreens map to the first output (the built-in panel on laptops).
+    fn touch_position<E: AbsolutePositionEvent<B>, B: InputBackend>(
+        &self,
+        event: &E,
+    ) -> Point<f64, Logical> {
+        match self.outputs.first() {
+            Some(o) => {
+                let size = self.output_logical_size(&o.output);
+                event.position_transformed(size) + Point::from((o.lane as f64, 0.0))
+            }
+            None => Point::from((0.0, 0.0)),
+        }
+    }
+
+    fn on_touch_down(
+        &mut self,
+        slot: smithay::backend::input::TouchSlot,
+        pos: Point<f64, Logical>,
+        time: smithay::backend::input::InputTime,
+    ) {
+        let serial = SERIAL_COUNTER.next_serial();
+        let under = self.surface_under(pos);
+        // Touching a window focuses it, like a click.
+        if let (Some((surface, _)), false) = (&under, self.locked) {
+            let root = self.root_surface(surface);
+            if let Some(window) = self.window_for_surface(&root) {
+                self.focus_window(window);
+            } else if self.is_interactive_layer(&root) {
+                let keyboard = self.seat.get_keyboard().unwrap();
+                keyboard.set_focus(self, Some(root), serial);
+            }
+        }
+        self.touch_points.retain(|(s, _)| *s != slot);
+        self.touch_points.push((slot, under.clone()));
+        if let Some(t) = self.seat.get_touch() {
+            t.down(
+                self,
+                under,
+                &touch::DownEvent {
+                    slot,
+                    location: pos,
+                    serial,
+                    time,
+                },
+            );
+        }
+    }
+
+    fn on_touch_motion(
+        &mut self,
+        slot: smithay::backend::input::TouchSlot,
+        pos: Point<f64, Logical>,
+        time: smithay::backend::input::InputTime,
+    ) {
+        // A touch point stays with the surface it started on.
+        let focus = self
+            .touch_points
+            .iter()
+            .find(|(s, _)| *s == slot)
+            .and_then(|(_, f)| f.clone());
+        if let Some(t) = self.seat.get_touch() {
+            t.motion(
+                self,
+                focus,
+                &touch::MotionEvent {
+                    slot,
+                    location: pos,
+                    time,
+                },
+            );
+        }
+    }
+
+    fn on_touch_up(
+        &mut self,
+        slot: smithay::backend::input::TouchSlot,
+        time: smithay::backend::input::InputTime,
+    ) {
+        self.touch_points.retain(|(s, _)| *s != slot);
+        if let Some(t) = self.seat.get_touch() {
+            t.up(
+                self,
+                &touch::UpEvent {
+                    slot,
+                    serial: SERIAL_COUNTER.next_serial(),
+                    time,
+                },
+            );
         }
     }
 
@@ -478,5 +635,33 @@ impl Rift {
             }
         }
         root
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn touchpad_swipes() {
+        let p = |x: f64, y: f64| Point::<f64, Logical>::from((x, y));
+        assert!(swipe_action(2, p(-200.0, 0.0)).is_none());
+        assert!(swipe_action(3, p(-20.0, 10.0)).is_none());
+        assert!(matches!(
+            swipe_action(3, p(-200.0, 30.0)),
+            Some(Action::FocusRight)
+        ));
+        assert!(matches!(
+            swipe_action(4, p(150.0, -20.0)),
+            Some(Action::FocusLeft)
+        ));
+        assert!(matches!(
+            swipe_action(3, p(10.0, -120.0)),
+            Some(Action::WorkspaceDown)
+        ));
+        assert!(matches!(
+            swipe_action(3, p(10.0, 120.0)),
+            Some(Action::WorkspaceUp)
+        ));
     }
 }

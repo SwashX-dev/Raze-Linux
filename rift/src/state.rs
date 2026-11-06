@@ -68,6 +68,9 @@ pub struct OutputState {
     pub powered: bool,
 }
 
+/// A surface and its origin in global (lane) coordinates.
+pub type SurfaceAt = (WlSurface, Point<f64, Logical>);
+
 // Protocol state objects own their globals; several are only kept alive, not read.
 #[allow(dead_code)]
 pub struct Rift {
@@ -112,6 +115,10 @@ pub struct Rift {
     pub seat: Seat<Rift>,
     /// Pointer position in Space coordinates (inside an output lane).
     pub pointer_location: Point<f64, Logical>,
+    /// Touch points in progress: slot -> (surface, its origin) at touch-down.
+    pub touch_points: Vec<(smithay::backend::input::TouchSlot, Option<SurfaceAt>)>,
+    /// Touchpad swipe in progress: (fingers, accumulated movement).
+    pub swipe: Option<(u32, Point<f64, Logical>)>,
     pub cursor_status: CursorImageStatus,
     pub cursor_visible: bool,
 
@@ -251,6 +258,7 @@ impl Rift {
                 .expect("default keymap");
         }
         seat.add_pointer();
+        seat.add_touch();
 
         let ipc = crate::ipc::Ipc::new(&loop_handle, &socket_name);
         let bindings = crate::input::bindings(&config);
@@ -294,6 +302,8 @@ impl Rift {
             single_pixel_buffer_state,
             seat,
             pointer_location: (0.0, 0.0).into(),
+            touch_points: Vec::new(),
+            swipe: None,
             cursor_status: CursorImageStatus::default_named(),
             cursor_visible: true,
             toplevel_handles: HashMap::new(),
