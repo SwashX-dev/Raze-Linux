@@ -46,7 +46,8 @@
 
 - **Installation needs a network connection** (small derivations are built and a few
   build tools are downloaded).
-- **Untested in 1.1:** BIOS/legacy installs, manual partitioning, dual boot, real
+- **Untested in 1.1:** BIOS/legacy installs, manual partitioning, dual boot with a
+  real Windows installation (UEFI dual boot was tested with a stand-in), real
   hardware, desktops other than Rift and niri, the `legacy` and `minimal` kernel
   profiles on installed systems.
 - **Live boot is slower than it could be**: the ISO uses xz to stay under GitHub's

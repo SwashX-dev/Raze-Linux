@@ -48,7 +48,7 @@ real benchmarks instead of claims.
 
 | | |
 |---|---|
-| Version | **1.1.0** (2026-11-05) |
+| Version | **1.1.0** (2026-11-06) |
 | Architecture | x86_64 |
 | Kernel | Linux **7.3.1**; installer default profile: **performance** |
 | Base | nixpkgs `1d060086d60c` (nixos-unstable, pinned) |

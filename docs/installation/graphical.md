@@ -72,6 +72,8 @@ distribution.
   `boot.loader.grub.useOSProber = true` (BIOS); edit them there.
 - The firmware's boot order gets a **Raze** entry first. To start Windows directly
   instead, change the order in the firmware setup or with `efibootmgr`.
+- After its partition was shrunk, Windows checks the disk the first time it starts
+  (it may reboot once); that is expected.
 - Windows keeps the hardware clock in local time, Raze in UTC. Either set Windows to
   UTC (registry value `RealTimeIsUniversal`) or add
   `time.hardwareClockInLocalTime = true;` to `configuration.nix`.
@@ -105,7 +107,9 @@ sudo rix system switch    # apply edits to /etc/nixos/configuration.nix
 | UEFI (OVMF), empty 30 GB virtio disk, erase disk, ext4, Raze Desktop (Rift), QEMU/KVM without 3D | Full graphical install of the 1.1.0 ISO under r6; "Restart now"; GRUB from disk; login; Rift + Rift Shell; fastfetch; terminal |
 | Live ISO without 3D acceleration | r6 PID 1, Rift (pixman) + Rift Shell, installer autostart |
 | Upgrade of a 1.0.0 installation | See [upgrade.md](upgrade.md): upgrade, live switch to Rift, rollback to 1.0 |
-| BIOS/legacy boot, manual partitioning, dual boot, other desktops, real hardware | **Not tested for 1.1** |
+| UEFI dual boot: GPT disk with a 100 MB EFI partition holding *Windows Boot Manager* and an NTFS partition (a stand-in, not a real Windows installation), **Install alongside** | NTFS partition shrunk and still consistent; Windows' EFI partition reused; GRUB menu lists *Windows Boot Manager* and Raze Linux; Raze boots to the greeter; the Windows entry chainloads `bootmgfw.efi` |
+| Generated installer configurations | `installer-configs` flake check evaluates the `configuration.nix` written for UEFI and BIOS dual boot, UEFI erase disk, GNOME and Xfce |
+| Dual boot with a real Windows installation, BIOS/legacy boot, manual partitioning, other desktops, real hardware | **Not tested for 1.1** |
 
 ### 1.0.0
 

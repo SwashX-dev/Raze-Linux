@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.1.0 — 2026-11-06
+
+Release notes: [docs/release-notes/v1.1.0.md](docs/release-notes/v1.1.0.md).
+
+### Added
+- **r6 as PID 1 and service manager everywhere** (live ISO, installed systems,
+  `r6-user` for desktop sessions); socket activation, sd_notify readiness, timers,
+  `r6-import` of the systemd units NixOS generates, r6 switch-to-configuration.
+- **Rift**, Raze's Smithay-based scrollable-tiling Wayland compositor, and **Rift
+  Shell** (panel, launcher, control centre, notifications, lock screen, screenshots,
+  recording, clipboard history, polkit agent); touchscreen, touchpad swipes, screen
+  sharing.
+- Desktop choice at install: Rift, niri, Hyprland, dwl, KDE Plasma, Xfce, LXQt, dwm
+  on r6; GNOME on systemd.
+- Installer: dual boot (install alongside, replace a partition, reuse an existing EFI
+  partition, other systems in the GRUB menu); `installer-configs` flake check.
+- fastfetch with Raze support; os-release reports the Raze version.
+
+### Changed
+- Default desktop Rift + Rift Shell (was niri + waybar); default PID 1 r6 (was
+  systemd); EFI installs use GRUB (was systemd-boot); GRUB uses the Raze background.
+
+### Fixed
+- r6-init flushes `/etc/passwd`/`/etc/shadow` written by activation at startup.
+- Installer: invalid EFI GRUB option in the generated configuration.
+
 ## 1.0.0 — 2026-11-05
 
 First release.
