@@ -24,6 +24,9 @@
 #
 # `raze.r6.services` / `raze.r6.userServices` declare r6 services in Nix; they are
 # rendered to /etc/r6/services and /etc/r6/user-services and validated at build time.
+# Every other NixOS service that starts at boot is imported from the generated
+# systemd unit tree by `r6-import` (services, socket activation, timers); what it
+# cannot translate is listed in /etc/r6/import-report.
 { config, lib, pkgs, ... }:
 let
   cfg = config.raze.r6;
@@ -77,47 +80,83 @@ let
   # The unit's environment (PATH from `path`, plus `environment`).
   unitEnv = name: lib.filterAttrs (_: v: v != null) (lib.mapAttrs (_: toString) config.systemd.services.${name}.environment);
 
-  # r6 has no timers: one longrun checks hourly (first 10 minutes after boot) and runs
-  # every job whose interval has passed; last runs persist across reboots.
-  periodicJobs = lib.optionalAttrs config.services.fstrim.enable {
-    # util-linux ships fstrim.service; this is its ExecStart.
-    fstrim = { interval = 604800; command = [ "${pkgs.util-linux}/bin/fstrim" "--listed-in" "/etc/fstab:/proc/self/mountinfo" "--verbose" "--quiet-unsupported" ]; };
-  } // lib.optionalAttrs config.services.logrotate.enable {
-    logrotate = { interval = 3600; command = unitExec "logrotate"; };
-  };
-  periodic = {
-    description = "Periodic jobs: ${lib.concatStringsSep ", " (lib.attrNames periodicJobs)}";
-    restart = "always";
-    command = sh ''
-      mkdir -p /var/lib/r6/periodic
-      sleep 600
-      while :; do
-        now=$(date +%s)
-        ${lib.concatStrings (lib.mapAttrsToList (name: job: ''
-          last=$(cat /var/lib/r6/periodic/${name} 2>/dev/null || echo 0)
-          if [ $((now - last)) -ge ${toString job.interval} ]; then
-            echo "running ${name}"
-            ${lib.escapeShellArgs job.command} && echo "$now" > /var/lib/r6/periodic/${name}
-          fi
-        '') periodicJobs)}
-        sleep 3600
-      done
-    '';
-  };
-
-  # NixOS units that r6 replaces or that do not apply to it. Any other enabled unit
-  # without an r6 service triggers a build warning (see below).
+  # NixOS units that r6 replaces or that do not apply to it; never imported.
   coveredUnits = [
     "NetworkManager" "NetworkManager-dispatcher" "NetworkManager-wait-online" "wpa_supplicant"
     "firewall" "nftables" "post-boot" "network-local-commands" "nscd" "ntpd-rs" "resolvconf"
     "greetd" "sshd" "suid-sgid-wrappers" "systemd-modules-load" "systemd-sysctl" "scx"
     "polkit" "rtkit-daemon" "upower" "udisks2" "power-profiles-daemon" "bluetooth"
-    "dbus" "nix-daemon" "fstrim" "logrotate" "backdoor" "qemu-guest-agent" "spice-vdagentd"
+    "dbus" "nix-daemon" "backdoor" "qemu-guest-agent" "spice-vdagentd" "display-manager"
     # Not applicable under r6 (systemd-internal, kexec, one-time migrations, pstore).
     "generate-shutdown-ramfs" "prepare-kexec" "lastlog2-import" "linger-users"
     "logrotate-checkconf" "reload-systemd-vconsole-setup" "sleep-actions" "systemd-pstore"
-    "nix-load-db"
+    "nix-load-db" "kmod-static-nodes" "user-runtime-dir@" "user@" "getty@" "serial-getty@" "autovt@" "container@"
   ];
+
+  # systemd units that hand-written r6 services stand for (dependency mapping for
+  # imported services).
+  unitAliases = lib.filterAttrs (_: n: cfg.services ? ${n}) {
+    "NetworkManager.service" = "networkmanager";
+    "NetworkManager-wait-online.service" = "networkmanager";
+    "network.target" = "networkmanager";
+    "network-online.target" = "networkmanager";
+    "network-pre.target" = "firewall";
+    "nss-lookup.target" = "nscd";
+    "nss-user-lookup.target" = "nscd";
+    "nscd.service" = "nscd";
+    "dbus.service" = "dbus";
+    "dbus.socket" = "dbus";
+    "systemd-udevd.service" = "udevd";
+    "systemd-udev-trigger.service" = "udev-settle";
+    "systemd-udev-settle.service" = "udev-settle";
+    "local-fs.target" = "filesystems";
+    "remote-fs.target" = "filesystems";
+    "swap.target" = "filesystems";
+    "sysinit.target" = "tmpfiles";
+    "basic.target" = "tmpfiles";
+    "systemd-tmpfiles-setup.service" = "tmpfiles";
+    "systemd-logind.service" = "elogind";
+    "systemd-user-sessions.service" = "elogind";
+    "polkit.service" = "polkit";
+    "time-sync.target" = "ntpd-rs";
+    "ntpd-rs.service" = "ntpd-rs";
+    "nix-daemon.service" = "nix-daemon";
+    "nix-daemon.socket" = "nix-daemon";
+    "sshd.service" = "sshd";
+    "wpa_supplicant.service" = "wpa_supplicant";
+    "syslog.socket" = "syslog";
+    "systemd-journald.socket" = "syslog";
+    "systemd-journald.service" = "syslog";
+    "systemd-modules-load.service" = "modules";
+    "systemd-sysctl.service" = "sysctl";
+    "bluetooth.service" = "bluetooth";
+    "power-profiles-daemon.service" = "power-profiles";
+    "firewall.service" = "firewall";
+    "nftables.service" = "nftables";
+    "resolvconf.service" = "resolvconf";
+    "greetd.service" = "greetd";
+    "scx.service" = "scx";
+    "zram-swap.service" = "zram";
+    "post-boot.service" = "post-boot";
+    "network-local-commands.service" = "network-local-commands";
+    "suid-sgid-wrappers.service" = "wrappers";
+  };
+
+  # Hand-written services + services imported from the NixOS unit tree.
+  systemServices = pkgs.runCommand "r6-services" { nativeBuildInputs = [ pkgs.r6 ]; } ''
+    mkdir -p $out/services
+    ${lib.concatStrings (lib.mapAttrsToList (n: s: "cp ${render n s} $out/services/${n}.toml\n") cfg.services)}
+    r6-import --units ${config.environment.etc."systemd/system".source} \
+      --services $out/services --out $out/services \
+      --timers $out/timers.toml --timers-path /etc/r6/timers.toml \
+      --report $out/import-report \
+      ${lib.concatMapStringsSep " " (u: "--skip ${u}.service --skip ${u}.socket --skip ${u}.timer") coveredUnits} \
+      ${lib.concatStringsSep " " (lib.mapAttrsToList (u: n: "--alias ${u}=${n}") unitAliases)} \
+      ${lib.concatMapStringsSep " " (u: "--static-user ${lib.escapeShellArg u}") (lib.attrNames config.users.users)} \
+      --base-want filesystems --base-want tmpfiles
+    # Fail the system build on an invalid service graph.
+    r6-activate --dir $out/services
+  '';
 
   getty = tty: {
     description = "Login prompt on ${tty}";
@@ -193,7 +232,9 @@ in
     (lib.mkIf useR6 {
       # Only r6 systems get (and validate) an r6 service set; with raze.init =
       # "systemd" the r6 services other modules declare are inert.
-      environment.etc."r6/services".source = serviceDir "r6-services" cfg.services;
+      environment.etc."r6/services".source = "${systemServices}/services";
+      environment.etc."r6/timers.toml".source = "${systemServices}/timers.toml";
+      environment.etc."r6/import-report".source = "${systemServices}/import-report";
       environment.etc."r6/user-services".source = serviceDir "r6-user-services" cfg.userServices;
       environment.etc."r6/r6.toml".source = toml.generate "r6.toml" {
         log_dir = "/var/log/r6";
@@ -282,14 +323,6 @@ in
           }
         });
       '';
-
-      warnings =
-        let
-          wanted = lib.filterAttrs (n: v: v.enable && v.wantedBy != [ ] && !(lib.elem n coveredUnits)
-            && !(cfg.services ? ${n})) config.systemd.services;
-        in
-        lib.optional (wanted != { })
-          "raze.init = \"r6\": these enabled NixOS services have no r6 service and will not run: ${lib.concatStringsSep ", " (lib.attrNames wanted)}. Declare them in raze.r6.services (see docs/architecture/r6.md) or use raze.init = \"systemd\".";
 
       raze.r6.services = {
         syslog = {
@@ -412,7 +445,12 @@ in
             NIX_SSL_CERT_FILE = "/etc/ssl/certs/ca-certificates.crt";
             PATH = lib.makeBinPath [ config.nix.package pkgs.coreutils pkgs.gnutar pkgs.xz pkgs.gzip pkgs.git pkgs.util-linux ];
           };
-          extraConfig.rlimit_nofile = 1048576;
+          # Socket activation, as on systemd: started by the first Nix client.
+          extraConfig = {
+            rlimit_nofile = 1048576;
+            listen = [ "/nix/var/nix/daemon-socket/socket" ];
+            listen_mode = "666";
+          };
           restart = "always";
         };
         getty-tty2 = getty "tty2";
@@ -542,7 +580,6 @@ in
           restart = "on-failure";
         };
       }
-      // lib.optionalAttrs (periodicJobs != { }) { inherit periodic; }
       // lib.optionalAttrs config.services.openssh.enable {
         sshd = {
           description = "OpenSSH server";
