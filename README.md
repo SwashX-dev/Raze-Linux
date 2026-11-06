@@ -52,11 +52,11 @@ real benchmarks instead of claims.
 | Architecture | x86_64 |
 | Kernel | Linux **7.3.1**; installer default profile: **performance** |
 | Base | nixpkgs `1d060086d60c` (nixos-unstable, pinned) |
-| PID 1 / service manager | **r6** — live ISO, installed systems, default desktop (systemd only inside the initramfs) |
+| PID 1 / service manager | **r6** — live ISO, installed systems, every desktop except GNOME (systemd only inside the initramfs) |
 | Default desktop | **Rift** (Raze's own Smithay compositor) + **Rift Shell** |
 | Package management | **Rix** (Rust) on top of **Nix** |
 | Privilege escalation | **sudo-rs** |
-| Installer | **Calamares** with a Raze install module, GRUB on BIOS and EFI |
+| Installer | **Calamares** with a Raze install module, GRUB on BIOS and EFI, dual boot |
 
 Upgrading from 1.0: [docs/installation/upgrade.md](docs/installation/upgrade.md).
 What is not done yet: [known limitations](#known-limitations).
@@ -67,11 +67,13 @@ What is not done yet: [known limitations](#known-limitations).
   `r6-user`, for each desktop session (D-Bus, PipeWire, Rift Shell, clipboard
   history). systemd's roles are covered by r6, eudev, elogind, dbus-daemon, ntpd-rs,
   `r6-tmpfiles` and `r6-syslogd`; `nixos-rebuild switch` works through r6's own
-  switch-to-configuration.
+  switch-to-configuration. Socket activation, sd_notify readiness and timers; the
+  NixOS services you enable are imported from their systemd units automatically.
 - **Rift** — scrollable-tiling Wayland compositor written on Smithay: columns that
   never resize each other, dynamic workspaces per monitor, animations, GLES on GPUs
-  and a pixman renderer when there is no 3D acceleration, screencopy for screenshots
-  and recording, XWayland, JSON IPC.
+  and a pixman renderer when there is no 3D acceleration, screencopy for screenshots,
+  recording and screen sharing (xdg-desktop-portal-wlr), touchscreen and touchpad
+  swipes, XWayland, JSON IPC.
 - **Rift Shell** — panel, launcher (apps, calculator, commands), control centre
   (Wi-Fi, Bluetooth, audio, brightness, power profiles, night light, Do Not Disturb),
   notification daemon with history, lock screen, power menu, screenshots, screen
@@ -82,7 +84,9 @@ What is not done yet: [known limitations](#known-limitations).
 - **sudo-rs** is the only sudo. **fastfetch** knows Raze (`neofetch` runs it too).
 - **Reproducible and atomic** — pinned flake, system generations, rollbacks.
 - **Desktop choice at install** — Rift (default), niri, Hyprland, dwl, Xfce, LXQt,
-  KDE Plasma, GNOME, dwm.
+  KDE Plasma, GNOME, dwm; all on r6 except GNOME, which needs systemd.
+- **Dual boot** — install alongside Windows or another Linux, reuse the existing EFI
+  partition; other systems appear in the GRUB menu.
 
 ## Architecture
 
@@ -166,12 +170,24 @@ delegated is listed in [docs/architecture/rix.md](docs/architecture/rix.md).
 
 ## Supported desktops
 
-| Desktop | Status in 1.1 |
-|---|---|
-| **Rift + Rift Shell** (default) | Shipped on the ISO; tested with and without 3D acceleration, under r6 and systemd |
-| niri + waybar session | Tested under r6 with 3D acceleration (benchmark VM) |
-| sway + pixman (niri's automatic fallback) | Tested in 1.0 |
-| Hyprland, dwl, Xfce, LXQt, KDE Plasma, GNOME, dwm | Selectable; downloaded during install; **not tested in 1.1** |
+Every desktop logs in through greetd; with r6 its session services (D-Bus,
+PipeWire, WirePlumber) run under `r6-user`. Each row is a VM test
+(`nix build .#checks.x86_64-linux.desktop-<name>`) that boots the desktop as
+installed and checks its processes and services.
+
+| Desktop | Init | Status in 1.1 |
+|---|---|---|
+| **Rift + Rift Shell** (default) | r6 | Shipped on the ISO; VM tests with and without 3D, under r6 and systemd (screen sharing, polkit, lock, notifications, recording) |
+| niri + waybar | r6 | VM test (software fallback session), benchmark VM with 3D |
+| Hyprland + waybar | r6 | VM test (software fallback session), Hyprland with virgl 3D (see release notes) |
+| dwl + waybar | r6 | VM test |
+| KDE Plasma (Wayland) | r6 | VM test: Plasma starts without systemd, panel and desktop |
+| Xfce, LXQt, dwm | r6 | VM tests: rootless X server, window manager, panel |
+| GNOME | systemd | VM test (GNOME requires systemd; the installer selects it) |
+
+niri and Hyprland need a GPU with 3D acceleration; without one, Raze starts its
+software-rendered sway session instead. Desktops other than Rift are downloaded during
+installation.
 
 ## Installation
 
@@ -246,25 +262,27 @@ Performance claims need measurements; delegated functionality must be labelled.
 
 - **systemd runs inside the initramfs** (NixOS stage 1); PID 1 is r6 from
   switch-root on. Some nixpkgs libraries still link `libsystemd`.
-- **r6 has no socket activation or timer units yet**; NixOS services without an r6
-  equivalent do not run (the system build warns and names them).
-- **Rift**: single GPU, shm-only screencopy (no wl-screenrec, no portal screen
-  sharing), no touch gestures or tablet input.
+- **r6 does not sandbox services** (systemd's `Protect*=`/`Private*=` directives of
+  imported units are not applied); a few unit types are not imported (listed in
+  `/etc/r6/import-report`). GNOME needs systemd.
+- **Rift**: single GPU, shm-only screencopy (no wl-screenrec; screen sharing uses
+  CPU copies), no pinch gestures or tablet input.
 - **Rix delegates** evaluation, builds, substitution and installs to Nix.
 - Installation and upgrades need a network connection; upgrading from 1.0 compiles
   Raze's own packages locally (2–4 minutes in a 4-vCPU VM).
-- Not tested: BIOS installs, manual partitioning, dual boot, desktops other than Rift
-  and niri, real hardware.
+- Not tested on real hardware; BIOS installs and manual partitioning are not tested
+  in a VM either.
 - The ISO is not signed (SHA-256 checksums only).
 
 Full list: [docs/troubleshooting/known-issues.md](docs/troubleshooting/known-issues.md)
 
 ## Development roadmap
 
-1. Rift: multi-GPU, dmabuf screencopy, touch gestures, tablet input.
+1. Rift: multi-GPU, dmabuf screencopy, pinch gestures, tablet input.
 2. r6: replace the systemd-based initramfs with an r6 stage 1.
 3. Rix: native substitution (narinfo + parallel NAR downloads), then evaluation.
-4. Hardware validation matrix (real machines, BIOS, dual boot), signed releases.
+4. Hardware validation matrix (real machines, BIOS), signed releases; r6 service
+   sandboxing (namespaces, seccomp).
 5. Desktop memory and boot-time reductions, measured per change.
 
 ## License

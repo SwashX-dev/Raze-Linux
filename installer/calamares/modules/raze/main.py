@@ -140,7 +140,6 @@ def bootloader_config(gs, root, others):
             "  boot.loader.grub.enable = true;\n"
             "  boot.loader.grub.efiSupport = true;\n"
             '  boot.loader.grub.device = "nodev";\n'
-            '  boot.loader.grub.efiBootloaderId = "Raze";\n'
             "  boot.loader.grub.configurationLimit = 10;\n"
             "  # The EFI system partition (possibly shared with other systems); kernels\n"
             "  # stay on the root filesystem.\n"

@@ -13,6 +13,21 @@
   # fallback (raze.init = "systemd").
   desktop = import ./desktop.nix { inherit pkgs self lib; };
   desktop-systemd = import ./desktop.nix { inherit pkgs self lib; init = "systemd"; };
+
+  # The configuration.nix the installer writes, for several installation scenarios
+  # (UEFI and BIOS dual boot, GNOME, ...), must evaluate with the Raze flake.
+  installer-configs =
+    let
+      generated = pkgs.runCommand "raze-installer-configs" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+        python3 ${../installer/generate.py} ${../../installer/calamares/modules/raze} $out
+      '';
+      system = name: (self.lib.mkSystem {
+        modules = [ "${generated}/${name}.nix" ../installer/hardware.nix ];
+      }).config.system.build.toplevel;
+    in
+    pkgs.linkFarm "raze-installer-configs" (map
+      (name: { inherit name; path = pkgs.writeText name (system name).drvPath; })
+      [ "efi-erase" "efi-windows" "bios-windows" "gnome" "xfce" ]);
 }
 # The other selectable desktops: desktop-niri, desktop-hyprland, desktop-dwl,
 # desktop-plasma, desktop-xfce, desktop-lxqt, desktop-dwm (r6) and desktop-gnome

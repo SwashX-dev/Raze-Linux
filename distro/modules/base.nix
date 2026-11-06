@@ -34,6 +34,9 @@ in
       };
     };
 
+    # GRUB menu background (the NixOS default shows the NixOS logo).
+    boot.loader.grub.splashImage = lib.mkOverride 900 "${pkgs.raze-branding}/share/backgrounds/raze/wallpaper-1080.png";
+
     environment.etc."raze-release".text = ''
       RAZE_VERSION=${razeVersion}
       RAZE_PROFILE=${cfg.profile}
