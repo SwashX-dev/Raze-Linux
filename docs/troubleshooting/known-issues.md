@@ -8,15 +8,19 @@
 - **systemd libraries remain on the system.** Several nixpkgs packages link
   `libsystemd`/`libudev` from systemd's libraries (for example linux-pam). Raze's own
   components (r6, Rift) link none.
-- **No socket activation yet.** nix-daemon starts at boot (systemd starts it on first
-  use), which is most of r6's higher userspace memory at the login screen
-  ([benchmarks](../performance/benchmarks.md)).
-- **NixOS services without an r6 equivalent do not run.** The system build prints a
-  warning naming them; declare them in `raze.r6.services` or use
-  `raze.init = "systemd"`. Covered: everything the Raze profiles enable, plus sshd.
-- **No timer units.** fstrim and logrotate run from one periodic r6 service; other
-  NixOS timers you enable do not run under r6 (the build warning does not cover
-  timers yet).
+- **Some NixOS units cannot be imported.** Services enabled with ordinary NixOS
+  options are translated to r6 services at build time (`r6-import`), including
+  socket activation and timers. Not translated: `Type=forking`, network or
+  datagram sockets, units running systemd's own programs, privileged
+  `ExecStartPre=` with `User=`. They are listed in `/etc/r6/import-report`
+  (`r6 status` points to it); declare them in `raze.r6.services` or use
+  `raze.init = "systemd"`.
+- **No service sandboxing.** r6 does not apply systemd's sandboxing directives
+  (`ProtectSystem=`, `PrivateTmp=`, `SystemCallFilter=`, ...) of imported units;
+  those services run with ordinary Unix permissions (their user, capabilities).
+- **Timers are approximate.** `OnCalendar=` events run at their period ("03:15" runs
+  daily, not at 03:15).
+- **GNOME requires systemd.** Choosing GNOME sets `raze.init = "systemd"`.
 - **User services change at the next login** after `nixos-rebuild switch`; dbus,
   elogind, greetd and udevd changes apply at the next boot.
 - **Upgrading from 1.0 needs a reboot** (`rix system boot`, not `switch`): PID 1
@@ -26,10 +30,11 @@
 
 - **One GPU**: rendering and scan-out on the primary GPU only.
 - **Screencopy is shm only**: recorders that need dmabuf capture (wl-screenrec) do
-  not work; screen recording uses wf-recorder (CPU encoding).
-- **No screen sharing through xdg-desktop-portal** (no portal backend for Rift's
-  screencopy is configured), so browser screen sharing does not work yet.
-- **No touch gestures or tablet input** yet; no mouse move/resize of tiled windows.
+  not work; screen recording uses wf-recorder and screen sharing
+  (xdg-desktop-portal-wlr) uses CPU copies, capped at 30 frames per second.
+- **Touch**: touchscreens are mapped to the first output; three-finger touchpad
+  swipes scroll columns and switch workspaces. No pinch gestures, no tablet
+  (stylus) input, no mouse move/resize of tiled windows.
 - **Night light** needs DRM gamma tables: it has no effect in nested (winit) or
   headless Rift, and on virtual GPUs without gamma support.
 - **Rift Shell memory**: about 100 MB PSS for the Quickshell process with Qt's
