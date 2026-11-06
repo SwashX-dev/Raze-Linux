@@ -17,6 +17,10 @@
 //!    └──── stopped ◀── Stopping          ▼
 //!                                     Failed (until `r6 start`)
 //! ```
+//!
+//! A socket-activated service (`listen = [...]`) waits in `Listening` (which counts
+//! as ready for its dependents) until a client connects, then is spawned with the
+//! listening sockets; when it exits it goes back to `Listening`.
 
 use crate::activation::Graph;
 use crate::config::{Global, Kind, LogTarget, Ready, Restart, ServiceSet};
@@ -42,6 +46,7 @@ pub enum State {
     Backoff,
     Failed,
     Done,
+    Listening,
 }
 
 impl State {
@@ -54,13 +59,14 @@ impl State {
             State::Backoff => "backoff",
             State::Failed => "failed",
             State::Done => "done",
+            State::Listening => "listening",
         }
     }
     fn running(self) -> bool {
         matches!(self, State::Starting | State::Up | State::Stopping)
     }
     fn satisfied(self) -> bool {
-        matches!(self, State::Up | State::Done)
+        matches!(self, State::Up | State::Done | State::Listening)
     }
 }
 
@@ -75,6 +81,10 @@ struct Unit {
     killed: bool,
     notify: Option<OwnedFd>,
     notify_buf: Vec<u8>,
+    /// `notify` is an sd_notify datagram socket (READY=1), not an s6 readiness pipe.
+    notify_sd: bool,
+    /// Socket activation: the listening sockets, kept open while the service is wanted.
+    listeners: Vec<UnixListener>,
     out: Option<OwnedFd>,
     log: Option<LogWriter>,
     last_exit: Option<String>,
@@ -96,6 +106,8 @@ impl Unit {
             killed: false,
             notify: None,
             notify_buf: Vec::new(),
+            notify_sd: false,
+            listeners: Vec::new(),
             out: None,
             log: None,
             last_exit: None,
@@ -158,6 +170,8 @@ pub struct Supervisor {
     boot_complete_ms: Option<f64>,
     /// Variables imported with `r6 setenv`, applied to services started afterwards.
     extra_env: BTreeMap<String, String>,
+    /// Per-connection processes of `accept = true` services: pid -> service.
+    instances: BTreeMap<i32, String>,
     /// No messages at all (tests).
     quiet: bool,
     /// Messages go to /dev/kmsg (system supervisor under r6-init as PID 1).
@@ -216,6 +230,7 @@ impl Supervisor {
             started_ms,
             boot_complete_ms: None,
             extra_env: BTreeMap::new(),
+            instances: BTreeMap::new(),
             quiet: std::env::var_os("R6_QUIET").is_some(),
             kmsg: std::env::var_os("R6_KMSG").is_some(),
             verbose: crate::init::verbose(),
@@ -369,9 +384,35 @@ impl Supervisor {
     // ---------------------------------------------------------------- process control
 
     fn spawn(&mut self, name: &str) {
+        self.spawn_with(name, None)
+    }
+
+    /// Start a service; with `conn`, one inetd-style instance for that connection
+    /// (`accept = true`), which does not change the service's state.
+    fn spawn_with(&mut self, name: &str, conn: Option<UnixStream>) {
         let svc = self.set.services[name].clone();
-        let mut cmd = Command::new(&svc.command[0]);
-        cmd.args(&svc.command[1..]);
+        // Socket activation: the sockets become fds 3.. of the service. LISTEN_PID must
+        // be the service's own PID, which only the child knows: a shell sets it and
+        // execs the command (same PID).
+        let listen_fds: Vec<OwnedFd> = if conn.is_some() {
+            Vec::new()
+        } else {
+            self.units[name]
+                .listeners
+                .iter()
+                .filter_map(|l| sys::dup_above(l.as_raw_fd(), 64).ok())
+                .collect()
+        };
+        let mut cmd = if listen_fds.is_empty() {
+            let mut c = Command::new(&svc.command[0]);
+            c.args(&svc.command[1..]);
+            c
+        } else {
+            let mut c = Command::new("/bin/sh");
+            c.args(["-c", "export LISTEN_PID=$$; exec \"$@\"", "r6-listen"]);
+            c.args(&svc.command);
+            c
+        };
         cmd.env_clear();
         let path = std::env::var("PATH").unwrap_or_else(|_| ENV_PATH.into());
         cmd.env("PATH", path);
@@ -391,32 +432,67 @@ impl Supervisor {
         cmd.stdin(Stdio::null());
 
         let mut out_read = None;
-        match svc.log {
-            LogTarget::File => match sys::pipe() {
-                Ok((r, w)) => {
-                    let w2 = w.try_clone().ok();
-                    cmd.stdout(Stdio::from(w));
-                    match w2 {
-                        Some(w2) => cmd.stderr(Stdio::from(w2)),
-                        None => cmd.stderr(Stdio::null()),
-                    };
-                    let _ = sys::set_nonblocking(r.as_raw_fd());
-                    out_read = Some(r);
+        if let Some(c) = &conn {
+            match (c.try_clone(), c.try_clone()) {
+                (Ok(i), Ok(o)) => {
+                    cmd.stdin(Stdio::from(OwnedFd::from(i)));
+                    cmd.stdout(Stdio::from(OwnedFd::from(o)));
+                    cmd.stderr(Stdio::null());
                 }
-                Err(_) => {
+                _ => return,
+            }
+        } else {
+            match svc.log {
+                LogTarget::File => match sys::pipe() {
+                    Ok((r, w)) => {
+                        let w2 = w.try_clone().ok();
+                        cmd.stdout(Stdio::from(w));
+                        match w2 {
+                            Some(w2) => cmd.stderr(Stdio::from(w2)),
+                            None => cmd.stderr(Stdio::null()),
+                        };
+                        let _ = sys::set_nonblocking(r.as_raw_fd());
+                        out_read = Some(r);
+                    }
+                    Err(_) => {
+                        cmd.stdout(Stdio::null()).stderr(Stdio::null());
+                    }
+                },
+                LogTarget::Console => {
+                    cmd.stdout(Stdio::inherit()).stderr(Stdio::inherit());
+                }
+                LogTarget::Null => {
                     cmd.stdout(Stdio::null()).stderr(Stdio::null());
                 }
-            },
-            LogTarget::Console => {
-                cmd.stdout(Stdio::inherit()).stderr(Stdio::inherit());
-            }
-            LogTarget::Null => {
-                cmd.stdout(Stdio::null()).stderr(Stdio::null());
             }
         }
 
+        if !listen_fds.is_empty() {
+            cmd.env("LISTEN_FDS", listen_fds.len().to_string());
+            let names: Vec<String> = svc
+                .listen
+                .iter()
+                .map(|p| {
+                    p.file_name()
+                        .map(|f| f.to_string_lossy().into_owned())
+                        .unwrap_or_default()
+                })
+                .collect();
+            cmd.env("LISTEN_FDNAMES", names.join(":"));
+        }
+        let mut notify_sd = None;
+        if conn.is_none() && svc.kind == Kind::Longrun && svc.ready == Ready::SdNotify {
+            let addr = format!("r6-{}-{}", sys::getpid(), name);
+            match sys::bind_abstract_dgram(&addr) {
+                Ok(sock) => {
+                    cmd.env("NOTIFY_SOCKET", format!("@{addr}"));
+                    notify_sd = Some(sock);
+                }
+                Err(e) => return self.on_spawn_error(name, format!("notify socket: {e}")),
+            }
+        }
         let mut notify_pair = None;
-        if svc.kind == Kind::Longrun && svc.ready == Ready::Notify {
+        if conn.is_none() && svc.kind == Kind::Longrun && svc.ready == Ready::Notify {
             match sys::pipe() {
                 Ok(p) => {
                     cmd.env("R6_NOTIFY_FD", "3");
@@ -464,6 +540,7 @@ impl Supervisor {
             )
         });
         let notify_w = notify_pair.as_ref().map(|(_, w)| w.as_raw_fd());
+        let listen_raw: Vec<i32> = listen_fds.iter().map(|f| f.as_raw_fd()).collect();
         let (umask, nofile) = (svc.umask, svc.rlimit_nofile);
         let oom = svc.oom_score_adjust.map(sys::OomAdjust::new);
         // SAFETY: the closure only calls async-signal-safe functions (setsid, sigprocmask,
@@ -475,6 +552,10 @@ impl Supervisor {
                 sys::reset_signals_in_child();
                 if let Some(w) = notify_w {
                     sys::dup2(w, 3)?;
+                }
+                // Sources are >= 64, so no target overwrites a source not yet moved.
+                for (i, fd) in listen_raw.iter().enumerate() {
+                    sys::dup2(*fd, 3 + i as i32)?;
                 }
                 if let Some(m) = umask {
                     sys::set_umask(m);
@@ -499,10 +580,18 @@ impl Supervisor {
         }
 
         match cmd.spawn() {
+            Ok(child) if conn.is_some() => {
+                let pid = child.id() as i32;
+                drop(child);
+                drop(cmd);
+                self.instances.insert(pid, name.to_string());
+                self.debug(&format!("{name}: connection instance (pid {pid})"));
+            }
             Ok(child) => {
                 let pid = child.id() as i32;
                 drop(child); // We reap via waitpid ourselves.
                 drop(cmd); // Close our copies of the child's pipe ends.
+                drop(listen_fds);
                 let log = if out_read.is_some() {
                     Some(LogWriter::new(
                         &self.log_dir.join(name),
@@ -532,6 +621,14 @@ impl Supervisor {
                         let (r, _w) = notify_pair.unwrap(); // _w dropped: only the child keeps it.
                         let _ = sys::set_nonblocking(r.as_raw_fd());
                         u.notify = Some(r);
+                        u.notify_sd = false;
+                        u.notify_buf.clear();
+                        u.timer =
+                            Some(Instant::now() + Duration::from_millis(svc.ready_timeout_ms));
+                    }
+                    (Kind::Longrun, Ready::SdNotify) => {
+                        u.notify = notify_sd;
+                        u.notify_sd = true;
                         u.notify_buf.clear();
                         u.timer =
                             Some(Instant::now() + Duration::from_millis(svc.ready_timeout_ms));
@@ -657,6 +754,9 @@ impl Supervisor {
     }
 
     fn on_exit(&mut self, pid: i32, exit: Exit) {
+        if self.instances.remove(&pid).is_some() {
+            return;
+        }
         let Some(name) = self.pids.remove(&pid) else {
             return;
         };
@@ -711,6 +811,11 @@ impl Supervisor {
         let shutting = self.shutting_down.is_some();
         let u = self.units.get_mut(name).unwrap();
         u.pid = None;
+        if success && !shutting && u.wanted && !u.listeners.is_empty() {
+            // Socket-activated service exited cleanly: listen again.
+            u.set(State::Down);
+            return;
+        }
         if !restart || shutting || !u.wanted {
             if success {
                 u.set(State::Done);
@@ -874,7 +979,11 @@ impl Supervisor {
                 });
                 if hard_ok && soft_ok {
                     let n = name.to_string();
-                    self.spawn(&n);
+                    if !svc.listen.is_empty() {
+                        self.listen(&n);
+                    } else {
+                        self.spawn(&n);
+                    }
                     return true;
                 }
                 false
@@ -883,11 +992,62 @@ impl Supervisor {
         }
     }
 
+    /// Bind a socket-activated service's sockets (once) and wait for a connection.
+    fn listen(&mut self, name: &str) {
+        let svc = &self.set.services[name];
+        if self.units[name].listeners.is_empty() {
+            let mut listeners = Vec::new();
+            for path in &svc.listen {
+                let bound = sys::bind_listener(path, svc.listen_mode).and_then(|l| {
+                    // r6 accepts on inetd-style sockets itself.
+                    l.set_nonblocking(svc.accept)?;
+                    Ok(l)
+                });
+                match bound {
+                    Ok(l) => listeners.push(l),
+                    Err(e) => {
+                        let msg = format!("listen {}: {e}", path.display());
+                        return self.on_spawn_error(name, msg);
+                    }
+                }
+            }
+            self.units.get_mut(name).unwrap().listeners = listeners;
+        }
+        let u = self.units.get_mut(name).unwrap();
+        u.set(State::Listening);
+        if let Some(l) = u.log.as_mut() {
+            l.note("listening");
+        }
+        self.debug(&format!("{name} waiting for connections"));
+    }
+
+    fn close_listeners(&mut self, name: &str) {
+        let Some(u) = self.units.get_mut(name) else {
+            return;
+        };
+        if u.listeners.is_empty() {
+            return;
+        }
+        u.listeners.clear();
+        for p in &self.set.services[name].listen {
+            let _ = std::fs::remove_file(p);
+        }
+    }
+
     /// Downward transitions: stop unwanted services once nothing running depends on them.
     fn step_down(&mut self, name: &str) -> bool {
         let Some(u) = self.units.get(name) else {
             return false;
         };
+        if !u.wanted && !u.listeners.is_empty() && u.pid.is_none() {
+            let n = name.to_string();
+            self.close_listeners(&n);
+            let u = self.units.get_mut(&n).unwrap();
+            if u.state == State::Listening {
+                u.set(State::Down);
+            }
+            return true;
+        }
         if u.restart_pending && u.state.running() && u.state != State::Stopping {
             let n = name.to_string();
             self.begin_stop(&n);
@@ -933,7 +1093,12 @@ impl Supervisor {
         let settled = targets.iter().all(|n| {
             self.units
                 .get(n)
-                .map(|u| matches!(u.state, State::Up | State::Done | State::Failed))
+                .map(|u| {
+                    matches!(
+                        u.state,
+                        State::Up | State::Done | State::Failed | State::Listening
+                    )
+                })
                 .unwrap_or(true)
         });
         if settled {
@@ -1224,7 +1389,7 @@ impl Supervisor {
                     hangup: false,
                 });
             }
-            let mut owners: Vec<(String, bool)> = Vec::new();
+            let mut owners: Vec<(String, Source)> = Vec::new();
             for (name, u) in &self.units {
                 if let Some(fd) = &u.notify {
                     fds.push(PollFd {
@@ -1232,7 +1397,7 @@ impl Supervisor {
                         readable: false,
                         hangup: false,
                     });
-                    owners.push((name.clone(), true));
+                    owners.push((name.clone(), Source::Notify));
                 }
                 if let Some(fd) = &u.out {
                     fds.push(PollFd {
@@ -1240,7 +1405,17 @@ impl Supervisor {
                         readable: false,
                         hangup: false,
                     });
-                    owners.push((name.clone(), false));
+                    owners.push((name.clone(), Source::Output));
+                }
+                if u.state == State::Listening && u.wanted && self.shutting_down.is_none() {
+                    for l in &u.listeners {
+                        fds.push(PollFd {
+                            fd: l.as_raw_fd(),
+                            readable: false,
+                            hangup: false,
+                        });
+                        owners.push((name.clone(), Source::Listener));
+                    }
                 }
             }
             if let Err(e) = sys::poll(&mut fds, timeout) {
@@ -1285,7 +1460,8 @@ impl Supervisor {
                     done.push(i);
                 }
             }
-            for (k, (name, is_notify)) in owners.iter().enumerate() {
+            let mut activate = BTreeSet::new();
+            for (k, (name, source)) in owners.iter().enumerate() {
                 let f = &fds[2 + nclients + k];
                 if !(f.readable || f.hangup) {
                     continue;
@@ -1293,7 +1469,25 @@ impl Supervisor {
                 let Some(u) = self.units.get_mut(name) else {
                     continue;
                 };
-                if *is_notify {
+                if *source == Source::Listener {
+                    activate.insert(name.clone());
+                } else if *source == Source::Notify && u.notify_sd {
+                    let mut buf = [0u8; 4096];
+                    let Some(fd) = u.notify.as_ref() else {
+                        continue;
+                    };
+                    if let Ok(n) = sys::read(fd.as_raw_fd(), &mut buf) {
+                        let ready = buf[..n].split(|b| *b == b'\n').any(|l| l == b"READY=1");
+                        if ready && u.state == State::Starting {
+                            u.notify = None;
+                            u.timer = None;
+                            u.set(State::Up);
+                            if let Some(l) = u.log.as_mut() {
+                                l.note("ready");
+                            }
+                        }
+                    }
+                } else if *source == Source::Notify {
                     let mut buf = [0u8; 256];
                     let Some(fd) = u.notify.as_ref() else {
                         continue;
@@ -1319,11 +1513,37 @@ impl Supervisor {
                     Self::drain_output(u);
                 }
             }
+            for name in activate {
+                if self.units.get(&name).map(|u| u.state) != Some(State::Listening) {
+                    continue;
+                }
+                if self.set.services[&name].accept {
+                    let mut conns = Vec::new();
+                    for l in &self.units[&name].listeners {
+                        while let Ok((c, _)) = l.accept() {
+                            conns.push(c);
+                        }
+                    }
+                    for c in conns {
+                        self.spawn_with(&name, Some(c));
+                    }
+                } else {
+                    self.debug(&format!("connection on {name}'s socket"));
+                    self.spawn(&name);
+                }
+            }
             for i in done.into_iter().rev() {
                 self.clients.remove(i);
             }
         }
     }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Source {
+    Notify,
+    Output,
+    Listener,
 }
 
 /// CLOCK_BOOTTIME (ms) at which r6-init started, passed down via the environment.

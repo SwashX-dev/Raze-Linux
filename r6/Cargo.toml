@@ -52,3 +52,10 @@ path = "src/bin/r6-tmpfiles.rs"
 [[bin]]
 name = "r6-syslogd"
 path = "src/bin/r6-syslogd.rs"
+[[bin]]
+name = "r6-import"
+path = "src/bin/r6-import.rs"
+
+[[bin]]
+name = "r6-timers"
+path = "src/bin/r6-timers.rs"

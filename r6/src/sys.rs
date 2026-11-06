@@ -146,6 +146,39 @@ pub fn read(fd: RawFd, buf: &mut [u8]) -> io::Result<usize> {
     }
 }
 
+/// Duplicate `fd` to the lowest free descriptor >= `min` (close-on-exec).
+pub fn dup_above(fd: RawFd, min: RawFd) -> io::Result<OwnedFd> {
+    let n = cvt(unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, min) })?;
+    // SAFETY: n is a new descriptor we own.
+    Ok(unsafe { OwnedFd::from_raw_fd(n) })
+}
+
+/// A non-blocking datagram socket bound to an abstract address (sd_notify receiver).
+pub fn bind_abstract_dgram(name: &str) -> io::Result<OwnedFd> {
+    use std::os::linux::net::SocketAddrExt;
+    let addr = std::os::unix::net::SocketAddr::from_abstract_name(name.as_bytes())?;
+    let sock = std::os::unix::net::UnixDatagram::bind_addr(&addr)?;
+    sock.set_nonblocking(true)?;
+    Ok(sock.into())
+}
+
+/// A Unix stream listener at `path` with the given mode (socket activation). It
+/// stays blocking: the service inherits it and accepts on it, as under systemd. A
+/// stale socket file is replaced; parent directories are created.
+pub fn bind_listener(
+    path: &std::path::Path,
+    mode: u32,
+) -> io::Result<std::os::unix::net::UnixListener> {
+    use std::os::unix::fs::PermissionsExt;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let _ = std::fs::remove_file(path);
+    let l = std::os::unix::net::UnixListener::bind(path)?;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))?;
+    Ok(l)
+}
+
 /// dup2 for use between fork and exec.
 pub fn dup2(old: RawFd, new: RawFd) -> io::Result<()> {
     if old == new {

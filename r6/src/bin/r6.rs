@@ -241,6 +241,9 @@ fn main() {
                 }
             } else if rest.is_empty() {
                 print_table(&r.services);
+                if !user {
+                    note_unsupported_units();
+                }
             } else {
                 print_detail(&r.services[0]);
             }
@@ -446,5 +449,19 @@ fn main() {
         "halt" => signal_init(libc::SIGUSR2),
         "reboot" => signal_init(libc::SIGTERM),
         other => die(&format!("unknown command '{other}'\n\n{USAGE}")),
+    }
+}
+
+/// NixOS services that r6-import could not translate (they do not run under r6).
+fn note_unsupported_units() {
+    let Ok(report) = std::fs::read_to_string("/etc/r6/import-report") else {
+        return;
+    };
+    let n = report
+        .lines()
+        .filter(|l| l.starts_with("unsupported "))
+        .count();
+    if n > 0 {
+        eprintln!("\nnote: {n} NixOS unit(s) are not run by r6; see /etc/r6/import-report");
     }
 }

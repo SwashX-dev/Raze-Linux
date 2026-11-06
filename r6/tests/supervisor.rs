@@ -697,3 +697,128 @@ fn user_supervisor_uses_session_locations() {
         .unwrap()
         .is_some()));
 }
+
+#[test]
+fn sd_notify_readiness_gates_dependents() {
+    use std::os::linux::net::SocketAddrExt;
+    let mut e = Env::new();
+    e.sh_service(
+        "daemon",
+        "echo \"$NOTIFY_SOCKET\" > $OUT/notify; exec sleep 1000",
+        "ready = \"sd-notify\"",
+    );
+    e.sh_service("app", LONG, "depends = [\"daemon\"]\nenable = true");
+    e.start();
+    assert!(wait_until(Duration::from_secs(5), || e
+        .read_out("notify")
+        .starts_with('@')));
+    std::thread::sleep(Duration::from_millis(100));
+    assert_eq!(e.state("daemon"), "starting");
+    assert_eq!(e.state("app"), "down");
+    let name = e
+        .read_out("notify")
+        .trim()
+        .trim_start_matches('@')
+        .to_string();
+    let addr = std::os::unix::net::SocketAddr::from_abstract_name(name.as_bytes()).unwrap();
+    let sock = std::os::unix::net::UnixDatagram::unbound().unwrap();
+    sock.send_to_addr(b"STATUS=starting\nREADY=1\n", &addr)
+        .unwrap();
+    e.wait_state("daemon", "up", 5);
+    e.wait_state("app", "up", 5);
+}
+
+#[test]
+fn socket_activation_starts_service_on_first_connection() {
+    let mut e = Env::new();
+    let sock = e.root.join("run/sockets/svc.sock");
+    e.sh_service(
+        "svc",
+        "echo \"$LISTEN_FDS $LISTEN_FDNAMES $LISTEN_PID $$ $(readlink /proc/$$/fd/3)\" > $OUT/act; exec sleep 1000",
+        &format!("listen = [{:?}]\nlisten_mode = \"600\"", sock.display().to_string()),
+    );
+    e.sh_service("app", LONG, "depends = [\"svc\"]\nenable = true");
+    e.start();
+    // Listening counts as ready: the dependent starts without the service running.
+    e.wait_state("app", "up", 5);
+    assert_eq!(e.state("svc"), "listening");
+    assert!(e.field("svc", "pid").is_null());
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&sock).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+    let _client = std::os::unix::net::UnixStream::connect(&sock).unwrap();
+    e.wait_state("svc", "up", 5);
+    assert!(wait_until(Duration::from_secs(2), || !e
+        .read_out("act")
+        .is_empty()));
+    let act = e.read_out("act");
+    let f: Vec<&str> = act.split_whitespace().collect();
+    assert_eq!(f[0], "1", "{act}");
+    assert_eq!(f[1], "svc.sock", "{act}");
+    assert_eq!(f[2], f[3], "LISTEN_PID must be the service's PID: {act}");
+    assert!(f[4].starts_with("socket:"), "{act}");
+    // Stopping the service closes and removes the socket.
+    assert!(e.r6(&["stop", "app"]).status.success());
+    assert!(e.r6(&["stop", "svc"]).status.success());
+    e.wait_state("svc", "down", 10);
+    assert!(wait_until(Duration::from_secs(2), || !sock.exists()));
+}
+
+#[test]
+fn socket_activated_service_listens_again_after_clean_exit() {
+    let mut e = Env::new();
+    let sock = e.root.join("run/s.sock");
+    e.sh_service(
+        "svc",
+        "echo run >> $OUT/runs; exit 0",
+        &format!("listen = [{:?}]\nenable = true", sock.display().to_string()),
+    );
+    e.start();
+    e.wait_state("svc", "listening", 5);
+    drop(std::os::unix::net::UnixStream::connect(&sock).unwrap());
+    assert!(wait_until(Duration::from_secs(5), || e
+        .read_out("runs")
+        .lines()
+        .count()
+        >= 1));
+    // The pending connection was never accepted, so the socket stays readable and the
+    // service may run again; it must end up listening (not done/failed) each time.
+    std::thread::sleep(Duration::from_millis(300));
+    let st = e.state("svc");
+    assert!(st == "listening" || st == "up" || st == "backoff", "{st}");
+}
+
+#[test]
+fn accept_sockets_run_one_instance_per_connection() {
+    use std::io::{Read, Write};
+    let mut e = Env::new();
+    let sock = e.root.join("run/echo.sock");
+    // Each instance reads one line from the connection and answers on it.
+    e.sh_service(
+        "echo",
+        "read line; echo \"got $line from $$\"",
+        &format!(
+            "listen = [{:?}]\naccept = true\nenable = true",
+            sock.display().to_string()
+        ),
+    );
+    e.start();
+    e.wait_state("echo", "listening", 5);
+    let mut answers = Vec::new();
+    for i in 0..3 {
+        let mut c = std::os::unix::net::UnixStream::connect(&sock).unwrap();
+        c.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        writeln!(c, "hello{i}").unwrap();
+        let mut s = String::new();
+        c.read_to_string(&mut s).unwrap();
+        answers.push(s);
+    }
+    for (i, a) in answers.iter().enumerate() {
+        assert!(a.starts_with(&format!("got hello{i} from ")), "{a}");
+    }
+    // Separate processes, and the service itself keeps listening.
+    assert_ne!(answers[0], answers[1]);
+    assert_eq!(e.state("echo"), "listening");
+}

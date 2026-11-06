@@ -10,6 +10,9 @@
 //! depends = ["udev"]        # hard dependency: started first, failure propagates
 //! wants = ["syslog"]        # soft dependency: ordered first if enabled, failure ignored
 //! ready = "immediate"       # "immediate" | "notify" (write "\n" to $R6_NOTIFY_FD)
+//!                           # | "sd-notify" (send READY=1 to $NOTIFY_SOCKET)
+//! listen = ["/run/x.sock"]  # socket activation: started on the first connection
+//! accept = false            # true: one process per connection (stdin/stdout)
 //! restart = "on-failure"    # "always" | "on-failure" | "never"
 //! enable = true             # start at boot
 //! log = "file"              # "file" | "console" | "null"
@@ -43,6 +46,10 @@ pub enum Ready {
     /// Ready when the service writes a newline to the fd named by `R6_NOTIFY_FD`
     /// (s6-style readiness notification).
     Notify,
+    /// Ready when the service sends `READY=1` to the datagram socket named by
+    /// `NOTIFY_SOCKET` (systemd's sd_notify protocol, for `Type=notify` daemons).
+    #[serde(rename = "sd-notify")]
+    SdNotify,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -86,6 +93,10 @@ struct RawService {
     capabilities: Vec<String>,
     runtime_directory: Option<String>,
     state_directory: Option<String>,
+    #[serde(default)]
+    listen: Vec<PathBuf>,
+    listen_mode: Option<String>,
+    accept: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -122,6 +133,15 @@ pub struct Service {
     pub runtime_directory: Option<String>,
     /// Created as /var/lib/<name> (owned by the service user) if missing.
     pub state_directory: Option<String>,
+    /// Socket activation: Unix stream sockets r6 listens on while the service is not
+    /// running. The first connection starts it with the sockets as fds 3.. and
+    /// `LISTEN_FDS`/`LISTEN_PID` set (systemd's protocol, e.g. nix-daemon).
+    pub listen: Vec<PathBuf>,
+    /// Mode of the listening sockets (octal in the TOML: `listen_mode = "666"`).
+    pub listen_mode: u32,
+    /// inetd style (systemd's `Accept=yes`): r6 accepts each connection and starts
+    /// one process per connection with the connection as stdin and stdout.
+    pub accept: bool,
 }
 
 #[derive(Debug)]
@@ -271,11 +291,35 @@ impl Service {
             Kind::Oneshot => Restart::Never,
         });
         let ready = raw.ready.unwrap_or(Ready::Immediate);
-        if kind == Kind::Oneshot && ready == Ready::Notify {
+        if kind == Kind::Oneshot && ready != Ready::Immediate {
             return Err(inv(
-                "oneshot services become ready on successful exit; 'ready = notify' is not allowed",
+                "oneshot services become ready on successful exit; 'ready' is not allowed",
             ));
         }
+        if !raw.listen.is_empty() {
+            if kind == Kind::Oneshot {
+                return Err(inv("'listen' only applies to longrun services"));
+            }
+            if ready == Ready::Notify {
+                return Err(inv(
+                    "'listen' cannot be combined with 'ready = notify' (fd 3)",
+                ));
+            }
+            if raw.listen.iter().any(|p| !p.is_absolute()) {
+                return Err(inv("'listen' paths must be absolute"));
+            }
+        }
+        let accept = raw.accept.unwrap_or(false);
+        if accept && raw.listen.is_empty() {
+            return Err(inv("'accept' needs 'listen'"));
+        }
+        let listen_mode = match raw.listen_mode.as_deref() {
+            None => 0o666,
+            Some(m) => u32::from_str_radix(m.trim_start_matches("0o"), 8)
+                .ok()
+                .filter(|m| *m <= 0o777)
+                .ok_or_else(|| inv(&format!("invalid listen_mode '{m}' (octal)")))?,
+        };
         if kind == Kind::Oneshot && restart == Restart::Always {
             return Err(inv("oneshot services cannot use 'restart = always'"));
         }
@@ -345,6 +389,9 @@ impl Service {
             capabilities,
             runtime_directory: raw.runtime_directory,
             state_directory: raw.state_directory,
+            listen: raw.listen,
+            listen_mode,
+            accept,
         })
     }
 }
