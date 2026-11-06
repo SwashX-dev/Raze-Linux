@@ -269,6 +269,12 @@ in
         message = "raze.init = \"r6\" is not compatible with system.nixos-init (it replaces initrd-switch-root).";
       }];
       services.dbus.implementation = lib.mkForce "dbus";
+      # polkit that finds elogind sessions (allow_active rules, agent registration).
+      security.polkit.package = lib.mkDefault pkgs.polkit-elogind;
+      # Its client libraries, which polkit agents use to register for their session;
+      # graphical sessions put this directory first in LD_LIBRARY_PATH (same polkit
+      # version and ABI as the libraries the agents were built against).
+      environment.etc."raze/polkit-lib".source = "${config.security.polkit.package.out}/lib";
       services.ntpd-rs.enable = lib.mkDefault true;
       services.timesyncd.enable = lib.mkForce false;
       systemd.oomd.enable = lib.mkForce false;

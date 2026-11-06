@@ -23,6 +23,9 @@ r6_session=false
 if [ "$(cat /proc/1/comm 2>/dev/null)" = r6-init ] && [ -n "$XDG_RUNTIME_DIR" ]; then
     r6_session=true
     export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+    # polkit libraries that understand elogind sessions, for the desktop's polkit
+    # agent (see distro/modules/r6.nix).
+    [ -d /etc/raze/polkit-lib ] && export LD_LIBRARY_PATH="/etc/raze/polkit-lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
     r6-user > "$XDG_RUNTIME_DIR/r6-user.log" 2>&1 &
     user_pid=$!
     i=0

@@ -50,6 +50,11 @@ in
 
   raze-gpu-check = final.callPackage ../distro/gpu-check { inherit version; };
 
+  # polkit with elogind session tracking (r6 systems). nixpkgs' polkit finds a
+  # process's login session through libsystemd, which only understands systemd's
+  # cgroup layout, so under elogind polkitd and polkit agents see no sessions.
+  polkit-elogind = prev.polkit.override { useSystemd = false; };
+
   raze-calamares-extensions = final.callPackage ../installer/calamares { inherit version; };
 
   # The Raze source tree, copied onto installed systems so /etc/nixos can build from it

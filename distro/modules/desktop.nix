@@ -19,6 +19,24 @@ let
   xDesktop = builtins.elem d [ "xfce" "lxqt" "dwm" ];
   # Desktops started by greetd + raze-session (all but GNOME).
   greeter = graphical && d != "gnome";
+  # xdg-desktop-portal-wlr reads its configuration only from its own prefix or
+  # ~/.config, and NixOS passes --config through a systemd user unit only. Without
+  # systemd it is started by D-Bus activation, so pass --config there.
+  xdpwConfig = pkgs.writeText "xdg-desktop-portal-wlr.ini" ''
+    [screencast]
+    chooser_type=simple
+    chooser_cmd=${pkgs.raze-branding}/bin/raze-output-chooser
+    max_fps=30
+  '';
+  xdpwRift = pkgs.runCommand "xdg-desktop-portal-wlr-raze" { } ''
+    xdpw=${pkgs.xdg-desktop-portal-wlr}
+    mkdir -p $out/share/dbus-1/services $out/share/xdg-desktop-portal/portals
+    cp $xdpw/share/xdg-desktop-portal/portals/wlr.portal $out/share/xdg-desktop-portal/portals/
+    sed "s|^Exec=.*|Exec=$xdpw/libexec/xdg-desktop-portal-wlr --config=${xdpwConfig}|" \
+      $xdpw/share/dbus-1/services/org.freedesktop.impl.portal.desktop.wlr.service \
+      > $out/share/dbus-1/services/org.freedesktop.impl.portal.desktop.wlr.service
+    grep -q -- "--config=" $out/share/dbus-1/services/*.service
+  '';
 in
 {
   options.raze = {
@@ -159,20 +177,13 @@ in
       services.power-profiles-daemon.enable = lib.mkDefault true;
 
       # Screen sharing and portal screenshots (browsers, OBS, video calls) through
-      # xdg-desktop-portal-wlr on Rift's wlr-screencopy. The portal is D-Bus
-      # activated, so it reads its configuration from /etc/xdg.
-      xdg.portal.extraPortals = [ pkgs.xdg-desktop-portal-wlr ];
+      # xdg-desktop-portal-wlr on Rift's wlr-screencopy.
+      xdg.portal.extraPortals = [ xdpwRift ];
       xdg.portal.config.rift = {
         default = [ "gtk" ];
         "org.freedesktop.impl.portal.ScreenCast" = [ "wlr" ];
         "org.freedesktop.impl.portal.Screenshot" = [ "wlr" ];
       };
-      environment.etc."xdg/xdg-desktop-portal-wlr/config".text = ''
-        [screencast]
-        chooser_type=simple
-        chooser_cmd=${pkgs.raze-branding}/bin/raze-output-chooser
-        max_fps=30
-      '';
 
       raze.r6.userServices = {
         graphical-session.wants = [ "rift-shell" "cliphist" ];
@@ -180,6 +191,10 @@ in
           description = "Rift Shell (panel, notifications, lock screen, polkit agent)";
           depends = [ "dbus" ];
           command = [ "${pkgs.rift-shell}/bin/rift-shell" ];
+          # Its polkit agent needs polkit libraries that understand elogind sessions.
+          environment = lib.optionalAttrs (config.raze.init == "r6") {
+            LD_LIBRARY_PATH = "/etc/raze/polkit-lib";
+          };
           restart = "always";
           enable = false;
         };

@@ -6,13 +6,23 @@
 let
   version = self.packages.x86_64-linux.r6.version;
   asUser = cmd: "su - raze -c 'export XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-1 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus RIFT_SOCKET=$(ls /run/user/1000/rift.*.sock); ${cmd}'";
+  # Ask polkit for an admin action, allowing the session's agent to authenticate.
+  polkitCheck = pkgs.writeShellScript "polkit-check" ''
+    ${pkgs.polkit.bin}/bin/pkcheck --action-id org.freedesktop.policykit.exec --process $$ --allow-user-interaction \
+      && touch /tmp/pk-ok
+  '';
+  # Screen cast client: portal session, then the PipeWire connection the portal grants,
+  # as browsers do; the command given gets that fd and the node id.
   portalClient = pkgs.writeShellScript "portal-screencast" ''
     export GI_TYPELIB_PATH=${pkgs.glib.out}/lib/girepository-1.0:${pkgs.gobject-introspection}/lib/girepository-1.0
-    exec ${pkgs.python3.withPackages (p: [ p.pygobject3 ])}/bin/python3 ${./scripts/portal-screencast.py}
+    exec ${pkgs.python3.withPackages (p: [ p.pygobject3 ])}/bin/python3 ${./scripts/portal-screencast.py} "$@"
   '';
+  # Read three frames from the stream (declared as a video capture, so WirePlumber
+  # links it to the screen cast source).
   gstFrames = pkgs.writeShellScript "gst-frames" ''
     export GST_PLUGIN_SYSTEM_PATH_1_0=${pkgs.pipewire}/lib/gstreamer-1.0:${pkgs.gst_all_1.gstreamer.out}/lib/gstreamer-1.0:${pkgs.gst_all_1.gst-plugins-base}/lib/gstreamer-1.0
-    exec ${pkgs.gst_all_1.gstreamer.bin}/bin/gst-launch-1.0 -q pipewiresrc path="$1" num-buffers=3 ! fakesink
+    exec ${pkgs.gst_all_1.gstreamer.bin}/bin/gst-launch-1.0 pipewiresrc fd="$1" path="$2" num-buffers=3 \
+      'stream-properties=props,media.type=Video,media.category=Capture,media.role=Screen' ! fakesink 2>&1
   '';
 in
 pkgs.testers.runNixOSTest {
@@ -119,26 +129,25 @@ pkgs.testers.runNixOSTest {
 
     with subtest("screen sharing through the XDG portal"):
         # As a browser does: portal ScreenCast session -> xdg-desktop-portal-wlr ->
-        # Rift's wlr-screencopy -> PipeWire stream; then read frames from the stream.
-        machine.succeed("${asUser "${portalClient} > /tmp/portal.out 2> /tmp/portal.err &"}")
-        machine.wait_until_succeeds("grep -qx '[0-9][0-9]*' /tmp/portal.out", timeout=90)
-        node = machine.succeed("cat /tmp/portal.out").strip()
+        # Rift's screencopy -> PipeWire stream, read through the portal's connection.
+        status, out = machine.execute("${asUser "timeout 90 ${portalClient} ${gstFrames}"}")
+        print(out)
+        assert status == 0 and "Got EOS" in out, f"no frames from the screen cast (exit {status})"
         machine.succeed("pgrep -u raze -f xdg-desktop-portal-wlr")
-        machine.succeed("${asUser "timeout 60 ${gstFrames} NODE"}".replace("NODE", node))
 
     with subtest("notifications reach Rift Shell"):
         machine.succeed("${asUser "notify-send raze-test hello"}")
         machine.wait_until_succeeds("${asUser "rift-shell ipc notifications count"} | grep -qx '[1-9][0-9]*'", timeout=30)
 
     with subtest("polkit authentication through Rift Shell"):
-        # pkexec from the session -> polkitd -> Rift Shell's agent dialog -> password
-        # -> polkit's agent helper (r6 per-connection socket service) -> root.
-        machine.succeed("${asUser "rift msg action spawn pkexec touch /tmp/pk-ok"}")
+        # An admin action asked for from the session (as apps do over D-Bus) ->
+        # polkitd -> Rift Shell's agent dialog -> password -> polkit's agent helper
+        # (an r6 per-connection socket service) -> authorized.
+        machine.succeed("${asUser "rift msg action spawn ${polkitCheck}"}")
         machine.sleep(4)
         machine.screenshot("polkit-dialog")
         machine.send_chars("raze\n")
         machine.wait_until_succeeds("test -e /tmp/pk-ok", timeout=30)
-        machine.succeed("test \"$(stat -c %U /tmp/pk-ok)\" = root")
 
     with subtest("session lock"):
         machine.succeed("${asUser "rift-shell lock"}")

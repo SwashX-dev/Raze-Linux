@@ -11,7 +11,6 @@ bus = Gio.bus_get_sync(Gio.BusType.SESSION)
 sender = bus.get_unique_name()[1:].replace(".", "_")
 loop = GLib.MainLoop()
 
-
 def request(method, fmt, args, token):
     path = f"/org/freedesktop/portal/desktop/request/{sender}/{token}"
     result = {}
@@ -36,7 +35,6 @@ def request(method, fmt, args, token):
         sys.exit(f"{method}: response {code}")
     return res
 
-
 tok = lambda t: GLib.Variant("s", t)  # noqa: E731
 res = request("CreateSession", "(a{sv})",
               ({"handle_token": tok("t1"), "session_handle_token": tok("s1")},), "t1")
@@ -46,6 +44,22 @@ request("SelectSources", "(oa{sv})",
 res = request("Start", "(osa{sv})", (session, "", {"handle_token": tok("t3")}), "t3")
 node = res["streams"][0][0]
 print(node, flush=True)
+
+# As a browser does: open the PipeWire connection the portal grants for this session
+# and read frames from the stream through it (argv[1:]: a command that gets the fd
+# and node id appended, e.g. a GStreamer pipeline).
+if len(sys.argv) > 1:
+    import subprocess
+
+    ret, fds = bus.call_with_unix_fd_list_sync(
+        "org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop",
+        "org.freedesktop.portal.ScreenCast", "OpenPipeWireRemote",
+        GLib.Variant("(oa{sv})", (session, {})), GLib.VariantType("(h)"),
+        Gio.DBusCallFlags.NONE, 60000, None, None)
+    fd = fds.get(ret.unpack()[0])
+    rc = subprocess.run(sys.argv[1:] + [str(fd), str(node)], pass_fds=[fd]).returncode
+    sys.exit(rc)
+
 # Keep the session (and the stream) alive until killed.
 GLib.timeout_add_seconds(120, loop.quit)
 loop.run()
