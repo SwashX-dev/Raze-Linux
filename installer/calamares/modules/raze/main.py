@@ -4,7 +4,8 @@
 # Raze Linux Calamares job module.
 #
 # Runs after the partition and mount modules. It:
-#   1. generates hardware-configuration.nix (nixos-generate-config),
+#   1. generates hardware-configuration.nix (nixos-generate-config) and detects
+#      other operating systems for the boot menu (dual boot),
 #   2. copies the pinned Raze source tree to /etc/nixos/raze,
 #   3. writes a flake-based /etc/nixos (flake.nix + configuration.nix) from the
 #      choices made in the installer,
@@ -53,26 +54,120 @@ def valid_unix_name(name):
     return re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", name or "") is not None
 
 
-def bootloader_config(gs):
+# EFI loaders of other systems, chainloaded from GRUB: (path on an ESP, menu title).
+EFI_LOADERS = [
+    ("/EFI/Microsoft/Boot/bootmgfw.efi", "Windows Boot Manager"),
+]
+# Directories on the ESP that belong to this installation (or are generic fallbacks).
+OWN_EFI_DIRS = {"raze", "nixos-boot", "boot"}
+
+
+def efi_entries(esp):
+    """Other systems' boot loaders on the ESP mounted at `esp` (paths are ESP-relative,
+    with forward slashes, as GRUB wants them)."""
+    found = []
+    base = os.path.join(esp, "EFI")
+    if not os.path.isdir(base):
+        return found
+    names = {}
+    for d in os.listdir(base):
+        names[d.lower()] = d
+    for path, title in EFI_LOADERS:
+        parts = path.strip("/").split("/")
+        if parts[1].lower() in names:
+            real = os.path.join(base, names[parts[1].lower()], *parts[2:])
+            if os.path.isfile(real):
+                found.append(("/EFI/{}/{}".format(names[parts[1].lower()], "/".join(parts[2:])), title))
+    for low, d in sorted(names.items()):
+        if low in OWN_EFI_DIRS or low == "microsoft":
+            continue
+        for loader in ("shimx64.efi", "grubx64.efi", "systemd-bootx64.efi"):
+            if os.path.isfile(os.path.join(base, d, loader)):
+                title = d if low != "systemd" else "Linux (systemd-boot)"
+                found.append(("/EFI/{}/{}".format(d, loader), title.capitalize() if title.islower() else title))
+                break
+    return found
+
+
+def os_prober():
+    """Other systems found by os-prober: list of (device, loader-or-None, title, kind)."""
+    try:
+        out = subprocess.run(["os-prober"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                             timeout=120).stdout.decode("utf-8", "replace")
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    result = []
+    for line in out.splitlines():
+        fields = line.split(":")
+        if len(fields) < 4:
+            continue
+        dev, title, _short, kind = fields[0], fields[1], fields[2], fields[3]
+        loader = None
+        if "@" in dev:
+            dev, loader = dev.split("@", 1)
+        result.append((dev, loader, title, kind))
+    return result
+
+
+def grub_chainload(title, path):
+    path = path.replace("\\", "/")
+    return (
+        'menuentry "{title}" {{\n'
+        "  insmod part_gpt\n"
+        "  insmod fat\n"
+        "  search --no-floppy --file --set=root {path}\n"
+        "  chainloader {path}\n"
+        "}}\n"
+    ).format(title=title.replace('"', ""), path=path)
+
+
+def bootloader_config(gs, root, others):
+    """GRUB configuration. `others`: other systems found (dual boot)."""
     fw = gs.value("firmwareType")
+    timeout = 5 if others else 2
     if fw == "efi":
-        # GRUB on EFI too: Raze avoids systemd components, including systemd-boot.
-        return (
+        esp = os.path.join(root, "boot/efi")
+        entries = efi_entries(esp)
+        seen = {p.lower() for p, _ in entries}
+        # Loaders on other disks' ESPs (os-prober reports them as device@path).
+        for _dev, loader, title, kind in others:
+            if kind == "efi" and loader and loader.lower() not in seen and \
+                    loader.strip("/").split("/")[1].lower() not in OWN_EFI_DIRS:
+                entries.append((loader, title))
+                seen.add(loader.lower())
+        conf = (
+            # GRUB on EFI too: Raze avoids systemd components, including systemd-boot.
             "  boot.loader.grub.enable = true;\n"
             "  boot.loader.grub.efiSupport = true;\n"
             '  boot.loader.grub.device = "nodev";\n'
+            '  boot.loader.grub.efiBootloaderId = "Raze";\n'
             "  boot.loader.grub.configurationLimit = 10;\n"
+            "  # The EFI system partition (possibly shared with other systems); kernels\n"
+            "  # stay on the root filesystem.\n"
+            '  boot.loader.efi.efiSysMountPoint = "/boot/efi";\n'
             "  boot.loader.efi.canTouchEfiVariables = true;\n"
-            "  boot.loader.timeout = 2;\n"
-        )
+            "  boot.loader.timeout = {};\n"
+        ).format(timeout)
+        if entries:
+            conf += "  # Other operating systems found during installation (dual boot).\n"
+            conf += "  boot.loader.grub.extraEntries = ''\n"
+            for path, title in entries:
+                for line in grub_chainload(title, path).splitlines():
+                    conf += "    " + line + "\n"
+            conf += "  '';\n"
+        return conf, [t for _, t in entries]
     bootloader = gs.value("bootLoader")
     device = bootloader["installPath"] if bootloader else "nodev"
-    return (
+    conf = (
         "  boot.loader.grub.enable = true;\n"
         "  boot.loader.grub.device = {};\n"
         "  boot.loader.grub.configurationLimit = 10;\n"
-        "  boot.loader.timeout = 2;\n"
-    ).format(nix_string(device))
+        "  boot.loader.timeout = {};\n"
+    ).format(nix_string(device), timeout)
+    if others:
+        conf += "  # Other operating systems were found: list them in the boot menu.\n"
+        conf += "  boot.loader.grub.useOSProber = true;\n"
+    return conf, [t for _, _, t, _ in others]
 
 
 def locale_config(gs):
@@ -106,7 +201,7 @@ def choice(gs, key, allowed, default):
     return value if value in allowed else default
 
 
-def generate_configuration(gs):
+def generate_configuration(gs, root="/", others=()):
     desktop = choice(gs, "desktop", ["rift", "niri", "hyprland", "dwl", "xfce", "lxqt", "plasma", "gnome", "dwm"], "rift")
     profile = choice(gs, "profile", ["desktop", "development", "minimal"], "desktop")
     if profile == "desktop" and desktop != "rift":
@@ -130,8 +225,10 @@ def generate_configuration(gs):
     cfg += "  # Kernel profile: performance (default) | generic | legacy | minimal\n"
     cfg += '  raze.kernel.profile = "performance";\n'
     cfg += "  # Init system and service manager: r6 (default) | systemd (fallback)\n"
-    cfg += '  raze.init = "r6";\n\n'
-    cfg += bootloader_config(gs) + "\n"
+    # GNOME needs systemd (it is built on it); every other desktop runs on r6.
+    cfg += '  raze.init = {};\n\n'.format(nix_string("systemd" if desktop == "gnome" else "r6"))
+    boot, boot_others = bootloader_config(gs, root, list(others))
+    cfg += boot + "\n"
     cfg += "  networking.hostName = {};\n".format(nix_string(hostname))
     cfg += locale_config(gs) + "\n"
     cfg += "  users.users.{} = {{\n".format(nix_string(username))
@@ -141,7 +238,7 @@ def generate_configuration(gs):
     cfg += "  };\n\n"
     cfg += '  system.stateVersion = "26.05";\n'
     cfg += "}\n"
-    return cfg, desktop, profile
+    return cfg, desktop, profile, boot_others
 
 
 FLAKE = """\
@@ -217,9 +314,13 @@ def run():
         logline(out)
         return ("Hardware detection failed", out)
 
+    set_status("Looking for other operating systems", 0.04)
+    others = os_prober()
+    logline("os-prober: {}".format(others))
+
     set_status("Writing system configuration", 0.05)
     try:
-        cfg, desktop, profile = generate_configuration(gs)
+        cfg, desktop, profile, boot_others = generate_configuration(gs, root, others)
     except ValueError as e:
         return ("Invalid installer input", str(e))
     with open(os.path.join(etc_nixos, "configuration.nix"), "w") as f:
@@ -236,7 +337,7 @@ def run():
             p = os.path.join(dirpath, fn)
             if not os.path.islink(p):
                 os.chmod(p, 0o644)
-    logline("desktop={} profile={}".format(desktop, profile))
+    logline("desktop={} profile={} other systems in boot menu: {}".format(desktop, profile, boot_others))
     logline(cfg)
 
     # Lock the system flake before nixos-install. Otherwise nixos-install hashes

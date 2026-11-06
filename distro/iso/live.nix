@@ -65,7 +65,16 @@ in
     }))
     calamares-raze
     pkgs.raze-calamares-extensions
+    # Dual boot: finding other systems, resizing their partitions (kpmcore uses the
+    # file system tools), mounting NTFS.
+    pkgs.os-prober
+    pkgs.ntfs3g
+    pkgs.dosfstools
+    pkgs.e2fsprogs
+    pkgs.btrfs-progs
+    pkgs.xfsprogs
   ];
+  boot.supportedFilesystems.ntfs = true;
   # Calamares / kpmcore
   security.polkit.enable = true;
   programs.partition-manager.enable = true;
