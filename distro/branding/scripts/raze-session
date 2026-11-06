@@ -6,13 +6,18 @@
 # compositor in the foreground, and stops the user services on logout. On systemd
 # systems it defers to the compositor's own systemd session integration.
 #
-# Compositor: RAZE_DESKTOP (default from /etc/raze-release). niri needs a
+# Desktop: RAZE_DESKTOP (default from /etc/raze-release): rift, niri, hyprland, dwl
+# (Wayland), plasma (Plasma Wayland session), xfce, lxqt, dwm (X11 via startx, with
+# a rootless X server whose devices come from elogind). niri and Hyprland need a
 # hardware-accelerated GPU; without one the sway/pixman session is used.
 # RAZE_SESSION=niri|software forces a mode.
 
 desktop=${RAZE_DESKTOP:-$(sed -n 's/^RAZE_DESKTOP=//p' /etc/raze-release 2>/dev/null)}
 desktop=${desktop:-niri}
-export XDG_SESSION_TYPE=wayland
+case "$desktop" in
+    xfce|lxqt|dwm) export XDG_SESSION_TYPE=x11 ;;
+    *) export XDG_SESSION_TYPE=wayland ;;
+esac
 
 r6_session=false
 if [ "$(cat /proc/1/comm 2>/dev/null)" = r6-init ] && [ -n "$XDG_RUNTIME_DIR" ]; then
@@ -25,9 +30,19 @@ if [ "$(cat /proc/1/comm 2>/dev/null)" = r6-init ] && [ -n "$XDG_RUNTIME_DIR" ];
         sleep 0.02
         i=$((i + 1))
     done
-    # Blocks until the session bus is ready, so the compositor inherits a working bus.
+        # Blocks until the session bus is ready, so the compositor inherits a working bus.
     r6 --user start dbus > /dev/null 2>&1
 fi
+
+# X11 desktops: rootless Xorg on this session's VT; the client runs the session
+# hook (raze-session-ready) before the desktop.
+run_x() {
+    export XDG_CURRENT_DESKTOP=$1
+    shift
+    startx /run/current-system/sw/bin/raze-xsession "$@" -- "vt${XDG_VTNR:-1}" -keeptty \
+        > "${XDG_STATE_HOME:-$HOME/.local/state}/raze-xsession.log" 2>&1
+}
+mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}"
 
 mode=${RAZE_SESSION:-auto}
 run_software() {
@@ -54,6 +69,39 @@ case "$desktop" in
             exec niri-session
         fi
         ;;
+    hyprland)
+        # Hyprland, like niri, needs a hardware-accelerated GPU.
+        if [ "$mode" = software ] || { [ "$mode" = auto ] && ! raze-gpu-check; }; then
+            run_software
+            status=$?
+            if $r6_session; then
+                r6 --user shutdown > /dev/null 2>&1
+                wait "$user_pid"
+            fi
+            exit $status
+        fi
+        export XDG_CURRENT_DESKTOP=Hyprland
+        if [ ! -e "${XDG_CONFIG_HOME:-$HOME/.config}/hypr/hyprland.conf" ]; then
+            mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/hypr"
+            cp /etc/raze/hyprland.conf "${XDG_CONFIG_HOME:-$HOME/.config}/hypr/hyprland.conf"
+            chmod u+w "${XDG_CONFIG_HOME:-$HOME/.config}/hypr/hyprland.conf"
+        fi
+        if command -v start-hyprland > /dev/null; then start-hyprland; else Hyprland; fi
+        ;;
+    dwl)
+        export XDG_CURRENT_DESKTOP=dwl
+        dwl -s "raze-session-ready; waybar & mako & swaybg -m fill -i /run/current-system/sw/share/backgrounds/raze/wallpaper.png & lxqt-policykit-agent &"
+        ;;
+    plasma)
+        export XDG_CURRENT_DESKTOP=KDE
+        # Without a systemd user manager Plasma starts its components itself.
+        logdir=${XDG_STATE_HOME:-$HOME/.local/state}
+        [ -f "$logdir/plasma.log" ] && mv -f "$logdir/plasma.log" "$logdir/plasma.log.old"
+        startplasma-wayland > "$logdir/plasma.log" 2>&1
+        ;;
+    xfce) run_x XFCE startxfce4 ;;
+    lxqt) run_x LXQt startlxqt ;;
+    dwm) run_x dwm dwm ;;
     *)
         echo "raze-session: unknown desktop '$desktop'" >&2
         false

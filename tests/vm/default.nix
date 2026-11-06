@@ -14,3 +14,9 @@
   desktop = import ./desktop.nix { inherit pkgs self lib; };
   desktop-systemd = import ./desktop.nix { inherit pkgs self lib; init = "systemd"; };
 }
+# The other selectable desktops: desktop-niri, desktop-hyprland, desktop-dwl,
+# desktop-plasma, desktop-xfce, desktop-lxqt, desktop-dwm (r6) and desktop-gnome
+# (systemd, which GNOME requires).
+// lib.listToAttrs (map
+  (d: lib.nameValuePair "desktop-${d}" (import ./desktops.nix { inherit pkgs self lib; desktop = d; }))
+  [ "niri" "hyprland" "dwl" "plasma" "xfce" "lxqt" "dwm" "gnome" ])

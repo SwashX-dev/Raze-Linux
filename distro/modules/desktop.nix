@@ -2,6 +2,12 @@
 # enabled. The default is Rift, Raze's own compositor, with Rift Shell (panel, launcher,
 # notifications, lock screen, polkit agent). The other tiling Wayland sessions (niri,
 # Hyprland, dwl) share the waybar/fuzzel/mako/swaylock session tooling.
+#
+# Every desktop except GNOME logs in through greetd and starts with raze-session,
+# which runs the r6 user supervisor (session bus, PipeWire) under r6. X11 desktops
+# (XFCE, LXQt, dwm) use a rootless X server started with startx; no display-manager
+# service is needed, so they work with r6 and with systemd. GNOME requires systemd
+# (gnome-session and GDM depend on it), so it implies raze.init = "systemd".
 { config, lib, pkgs, ... }:
 let
   cfg = config.raze;
@@ -10,14 +16,9 @@ let
   waylandTiling = builtins.elem d [ "rift" "niri" "hyprland" "dwl" ];
   # Sessions using the waybar/fuzzel/mako stack (Rift brings its own shell).
   barSession = builtins.elem d [ "niri" "hyprland" "dwl" ];
-  greetdSession = {
-    rift = "raze-session";
-    # raze-session runs niri on hardware-accelerated GPUs and falls back to a
-    # software-rendered sway session elsewhere (niri refuses software renderers).
-    niri = "raze-session";
-    hyprland = "Hyprland";
-    dwl = "dwl";
-  }.${d} or null;
+  xDesktop = builtins.elem d [ "xfce" "lxqt" "dwm" ];
+  # Desktops started by greetd + raze-session (all but GNOME).
+  greeter = graphical && d != "gnome";
 in
 {
   options.raze = {
@@ -66,6 +67,8 @@ in
         };
       };
       environment.systemPackages = with pkgs; [ xdg-utils networkmanagerapplet ];
+      # The Raze wallpaper at /run/current-system/sw/share/backgrounds/raze.
+      environment.pathsToLink = [ "/share/backgrounds" ];
     })
 
     (lib.mkIf waylandTiling {
@@ -90,8 +93,11 @@ in
 
       environment.etc."xdg/foot/foot.ini".source = "${pkgs.raze-branding}/share/raze/desktop/foot.ini";
 
+    })
+
+    (lib.mkIf greeter {
       # Graphical session services (r6-user). Started by raze-session-ready once the
-      # compositor's Wayland socket exists; components add themselves as dependencies.
+      # display server is up; components add themselves as dependencies.
       raze.r6.userServices.graphical-session = {
         description = "Graphical session services";
         type = "oneshot";
@@ -104,14 +110,29 @@ in
         enable = true;
         settings = {
           default_session.command =
-            "${pkgs.tuigreet}/bin/tuigreet --time --remember --asterisks --greeting 'Raze Linux ${cfg.version}' --cmd ${greetdSession}";
+            "${pkgs.tuigreet}/bin/tuigreet --time --remember --asterisks --greeting 'Raze Linux ${cfg.version}' --cmd raze-session";
         } // lib.optionalAttrs (cfg.autologinUser != null) {
           initial_session = {
-            command = greetdSession;
+            command = "raze-session";
             user = cfg.autologinUser;
           };
         };
       };
+    })
+
+    (lib.mkIf xDesktop {
+      # Rootless Xorg started from the greetd session (raze-session -> startx).
+      services.xserver.enable = true;
+      services.xserver.displayManager.startx.enable = true;
+      services.xserver.displayManager.lightdm.enable = lib.mkForce false;
+      environment.systemPackages = [ pkgs.xinit ];
+    })
+
+    (lib.mkIf (d == "niri" || d == "hyprland") {
+      # Software-rendering fallback session for GPUs without 3D acceleration (niri
+      # and Hyprland refuse software renderers; see raze-session).
+      environment.systemPackages = with pkgs; [ sway raze-gpu-check ];
+      environment.etc."sway/raze.conf".source = "${pkgs.raze-branding}/share/raze/desktop/sway/raze.conf";
     })
 
     (lib.mkIf barSession {
@@ -127,7 +148,7 @@ in
     })
 
     (lib.mkIf (d == "rift") {
-      environment.systemPackages = with pkgs; [ rift rift-shell cliphist libnotify wf-recorder playerctl ];
+      environment.systemPackages = with pkgs; [ rift rift-shell cliphist libnotify wf-recorder playerctl jq ];
       services.displayManager.sessionPackages = [ pkgs.rift ];
       # The shell's icon glyphs (a subset of Material Symbols Rounded).
       fonts.packages = [ pkgs.rift-shell ];
@@ -136,6 +157,22 @@ in
       security.pam.services.rift-shell = { };
       # NetworkManager and Bluetooth control from the shell; power profiles.
       services.power-profiles-daemon.enable = lib.mkDefault true;
+
+      # Screen sharing and portal screenshots (browsers, OBS, video calls) through
+      # xdg-desktop-portal-wlr on Rift's wlr-screencopy. The portal is D-Bus
+      # activated, so it reads its configuration from /etc/xdg.
+      xdg.portal.extraPortals = [ pkgs.xdg-desktop-portal-wlr ];
+      xdg.portal.config.rift = {
+        default = [ "gtk" ];
+        "org.freedesktop.impl.portal.ScreenCast" = [ "wlr" ];
+        "org.freedesktop.impl.portal.Screenshot" = [ "wlr" ];
+      };
+      environment.etc."xdg/xdg-desktop-portal-wlr/config".text = ''
+        [screencast]
+        chooser_type=simple
+        chooser_cmd=${pkgs.raze-branding}/bin/raze-output-chooser
+        max_fps=30
+      '';
 
       raze.r6.userServices = {
         graphical-session.wants = [ "rift-shell" "cliphist" ];
@@ -158,13 +195,18 @@ in
     (lib.mkIf (d == "niri") {
       programs.niri.enable = true;
       environment.etc."niri/config.kdl".source = "${pkgs.raze-branding}/share/raze/desktop/niri/config.kdl";
-      # Software-rendering fallback session (see raze-session).
-      environment.systemPackages = with pkgs; [ sway raze-gpu-check ];
-      environment.etc."sway/raze.conf".source = "${pkgs.raze-branding}/share/raze/desktop/sway/raze.conf";
     })
 
     (lib.mkIf (d == "hyprland") {
-      programs.hyprland.enable = true;
+      # Not programs.hyprland: that module rebuilds Hyprland with different build
+      # options than the binary cache has (an hour-long compile at install time).
+      environment.systemPackages = [ pkgs.hyprland ];
+      services.displayManager.sessionPackages = [ pkgs.hyprland ];
+      programs.xwayland.enable = true;
+      xdg.portal.extraPortals = [ pkgs.xdg-desktop-portal-hyprland ];
+      xdg.portal.configPackages = [ pkgs.hyprland ];
+      # Default configuration, copied to ~/.config/hypr on first login (raze-session).
+      environment.etc."raze/hyprland.conf".source = "${pkgs.raze-branding}/share/raze/desktop/hypr/hyprland.conf";
     })
 
     (lib.mkIf (d == "dwl") {
@@ -172,38 +214,47 @@ in
     })
 
     (lib.mkIf (d == "xfce") {
-      services.xserver.enable = true;
       services.xserver.desktopManager.xfce.enable = true;
-      services.xserver.displayManager.lightdm.enable = true;
     })
 
     (lib.mkIf (d == "lxqt") {
-      services.xserver.enable = true;
       services.xserver.desktopManager.lxqt.enable = true;
-      services.xserver.displayManager.lightdm.enable = true;
+      # LXQt asks for a window manager on first login unless one is configured.
+      environment.systemPackages = [ pkgs.openbox ];
+      environment.etc."xdg/lxqt/session.conf".source = pkgs.runCommand "lxqt-session.conf" { } ''
+        sed 's/^\[General\]$/[General]\nwindow_manager=openbox/' \
+          ${pkgs.lxqt.lxqt-session}/share/lxqt/session.conf > $out
+        grep -q '^window_manager=openbox' $out
+      '';
     })
 
     (lib.mkIf (d == "dwm") {
-      services.xserver.enable = true;
       services.xserver.windowManager.dwm.enable = true;
-      services.xserver.displayManager.lightdm.enable = true;
       environment.systemPackages = with pkgs; [ st dmenu ];
     })
 
     (lib.mkIf (d == "plasma") {
       services.desktopManager.plasma6.enable = true;
-      services.displayManager.sddm = {
-        enable = true;
-        wayland.enable = true;
-      };
+      environment.sessionVariables.NIXOS_OZONE_WL = "1";
+      # Plasma's own polkit agent, KWallet etc. start from the session; no SDDM.
+      environment.etc."xdg/startkderc".text = ''
+        [General]
+        systemdBoot=false
+      '';
     })
 
     (lib.mkIf (d == "gnome") {
       services.desktopManager.gnome.enable = true;
       services.displayManager.gdm.enable = true;
+      # GNOME needs systemd as PID 1 (session and GDM are built on it).
+      raze.init = lib.mkOverride 900 "systemd";
+      assertions = [{
+        assertion = config.raze.init == "systemd";
+        message = "raze.desktop = \"gnome\" requires raze.init = \"systemd\" (GNOME depends on systemd). Use another desktop for r6.";
+      }];
     })
 
-    (lib.mkIf (graphical && !waylandTiling && cfg.autologinUser != null) {
+    (lib.mkIf (d == "gnome" && cfg.autologinUser != null) {
       services.displayManager.autoLogin = {
         enable = true;
         user = cfg.autologinUser;

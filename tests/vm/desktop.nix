@@ -6,6 +6,14 @@
 let
   version = self.packages.x86_64-linux.r6.version;
   asUser = cmd: "su - raze -c 'export XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-1 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus RIFT_SOCKET=$(ls /run/user/1000/rift.*.sock); ${cmd}'";
+  portalClient = pkgs.writeShellScript "portal-screencast" ''
+    export GI_TYPELIB_PATH=${pkgs.glib.out}/lib/girepository-1.0:${pkgs.gobject-introspection}/lib/girepository-1.0
+    exec ${pkgs.python3.withPackages (p: [ p.pygobject3 ])}/bin/python3 ${./scripts/portal-screencast.py}
+  '';
+  gstFrames = pkgs.writeShellScript "gst-frames" ''
+    export GST_PLUGIN_SYSTEM_PATH_1_0=${pkgs.pipewire}/lib/gstreamer-1.0:${pkgs.gst_all_1.gstreamer.out}/lib/gstreamer-1.0:${pkgs.gst_all_1.gst-plugins-base}/lib/gstreamer-1.0
+    exec ${pkgs.gst_all_1.gstreamer.bin}/bin/gst-launch-1.0 -q pipewiresrc path="$1" num-buffers=3 ! fakesink
+  '';
 in
 pkgs.testers.runNixOSTest {
   name = "raze-desktop-${init}";
@@ -39,7 +47,7 @@ pkgs.testers.runNixOSTest {
             machine.succeed("test ! -e /run/systemd/system")
             machine.wait_until_succeeds("r6 status greetd | grep -q up", timeout=120)
             # Every enabled system service is up (longrun) or done (oneshot).
-            machine.wait_until_succeeds("! r6 list | awk '$3 == \"enabled\" && $2 != \"up\" && $2 != \"done\"' | grep .", timeout=120)
+            machine.wait_until_succeeds("! r6 list | awk '$3 == \"enabled\" && $2 != \"up\" && $2 != \"done\" && $2 != \"listening\"' | grep .", timeout=120)
             machine.succeed("r6-activate --dir /etc/r6/services")
             # Regular users can read status but not control services.
             machine.succeed("su - raze -c 'r6 status greetd | grep -q up'")
@@ -54,6 +62,15 @@ pkgs.testers.runNixOSTest {
             machine.succeed("dbus-send --system --print-reply --dest=org.freedesktop.UPower /org/freedesktop/UPower org.freedesktop.DBus.Properties.Get string:org.freedesktop.UPower string:DaemonVersion")
             machine.succeed("pgrep -x upowerd")
             machine.succeed("dbus-send --system --print-reply --dest=org.freedesktop.UDisks2 /org/freedesktop/UDisks2/Manager org.freedesktop.DBus.Properties.Get string:org.freedesktop.UDisks2.Manager string:Version")
+            # Socket activation: nix-daemon waits for its first client (as on systemd).
+            machine.succeed("r6 status nix-daemon | grep -q listening")
+            machine.succeed("su - raze -c 'nix store info'")
+            machine.succeed("r6 status nix-daemon | grep -q up")
+            # Units imported from the NixOS unit tree: polkit's per-connection agent
+            # helper (Accept=yes socket), timers (fstrim, logrotate).
+            machine.succeed("r6 status polkit-agent-helper | grep -q listening")
+            machine.succeed("grep -q '^timer fstrim' /etc/r6/import-report")
+            machine.succeed("pgrep -x r6-timers")
             machine.succeed("logger -t raze-test hello-syslog")
             machine.wait_until_succeeds("r6 logs syslog | grep -q hello-syslog")
         else:
@@ -100,9 +117,28 @@ pkgs.testers.runNixOSTest {
         machine.succeed("test -s /tmp/rec.mp4")
         machine.screenshot("rift-desktop")
 
+    with subtest("screen sharing through the XDG portal"):
+        # As a browser does: portal ScreenCast session -> xdg-desktop-portal-wlr ->
+        # Rift's wlr-screencopy -> PipeWire stream; then read frames from the stream.
+        machine.succeed("${asUser "${portalClient} > /tmp/portal.out 2> /tmp/portal.err &"}")
+        machine.wait_until_succeeds("grep -qx '[0-9][0-9]*' /tmp/portal.out", timeout=90)
+        node = machine.succeed("cat /tmp/portal.out").strip()
+        machine.succeed("pgrep -u raze -f xdg-desktop-portal-wlr")
+        machine.succeed("${asUser "timeout 60 ${gstFrames} NODE"}".replace("NODE", node))
+
     with subtest("notifications reach Rift Shell"):
         machine.succeed("${asUser "notify-send raze-test hello"}")
         machine.wait_until_succeeds("${asUser "rift-shell ipc notifications count"} | grep -qx '[1-9][0-9]*'", timeout=30)
+
+    with subtest("polkit authentication through Rift Shell"):
+        # pkexec from the session -> polkitd -> Rift Shell's agent dialog -> password
+        # -> polkit's agent helper (r6 per-connection socket service) -> root.
+        machine.succeed("${asUser "rift msg action spawn pkexec touch /tmp/pk-ok"}")
+        machine.sleep(4)
+        machine.screenshot("polkit-dialog")
+        machine.send_chars("raze\n")
+        machine.wait_until_succeeds("test -e /tmp/pk-ok", timeout=30)
+        machine.succeed("test \"$(stat -c %U /tmp/pk-ok)\" = root")
 
     with subtest("session lock"):
         machine.succeed("${asUser "rift-shell lock"}")

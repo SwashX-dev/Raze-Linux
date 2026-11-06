@@ -1,0 +1,5 @@
+#!/bin/sh
+# X client started by raze-session through startx: publish DISPLAY to the session
+# (r6 user services, D-Bus activation), then run the desktop given as arguments.
+raze-session-ready
+exec "$@"
